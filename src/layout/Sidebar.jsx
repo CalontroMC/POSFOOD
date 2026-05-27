@@ -5,13 +5,9 @@ import {
   Scissors,
   Grid3x3,
   User,
-  Users as UsersIcon,
   CreditCard,
-  CalendarDays,
   Package,
-  Gift,
   QrCode,
-  Bell,
   Settings as SettingsIcon,
   ChevronLeft,
   ChefHat,
@@ -20,23 +16,23 @@ import {
 } from "lucide-react";
 import useShiftStatus from "../lib/useShiftStatus.js";
 
+// Grouped nav — sub-features now live inside their parent page via SectionTabs:
+//   /tables       includes  /bill-history (เรียกเช็คบิล)
+//   /shift        includes  /employees + /timeclock
+//   /members      includes  /points-manage
+// Removed: /reservations (feature dropped per owner request).
 const NAV = [
   { to: "/", label: "สั่งอาหาร", Icon: ShoppingCart },
+  { to: "/menu", label: "จัดการเมนู", Icon: Scissors },
   { to: "/reports", label: "รายงานยอดขาย", Icon: LayoutDashboard },
   { to: "/shift", label: "กะ / เงินสด", Icon: Coins },
-  { to: "/menu", label: "จัดการเมนู", Icon: Scissors },
   { to: "/tables", label: "จัดการโต๊ะ", Icon: Grid3x3 },
   { to: "/kds", label: "จอครัว (KDS)", Icon: ChefHat },
   { to: "/orders", label: "รายการออเดอร์", Icon: CreditCard },
   { to: "/stock", label: "สต็อกวัตถุดิบ", Icon: Package },
   { to: "/barcodes", label: "พิมพ์บาร์โค้ด", Icon: QrCode },
   { to: "/members", label: "สมาชิก", Icon: User },
-  { to: "/employees", label: "พนักงาน", Icon: UsersIcon },
-  { to: "/timeclock", label: "ตอกบัตร", Icon: Bell },
-  { to: "/reservations", label: "การจองโต๊ะ", Icon: CalendarDays },
-  { to: "/points-manage", label: "จัดการแต้ม", Icon: Gift },
   { to: "/payment-qr", label: "QR ชำระเงิน", Icon: QrCode },
-  { to: "/bill-history", label: "เรียกเช็คบิล", Icon: Bell },
   { to: "/settings", label: "ตั้งค่าร้าน", Icon: SettingsIcon },
 ];
 

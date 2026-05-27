@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, QrCode, Pencil, Users, Trash2, Printer, X, RefreshCcw } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
+import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { apiGet, apiPost, apiPatch, apiDelete } from "../lib/api.js";
 
@@ -87,6 +88,7 @@ export default function TableManagement() {
           </div>
         }
       />
+      <SectionTabs tabs={SECTIONS.tables} />
 
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {SUMMARY.map((s) => (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Clock, LogIn, LogOut, RefreshCcw } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
+import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import { apiGet, apiPost } from "../lib/api.js";
 
 export default function Timeclock() {
@@ -40,6 +41,7 @@ export default function Timeclock() {
           </button>
         }
       />
+      <SectionTabs tabs={SECTIONS.shift} />
 
       <h2 className="mb-2 text-sm font-bold text-gray-700">พนักงานที่ใช้งานอยู่</h2>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

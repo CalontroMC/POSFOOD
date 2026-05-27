@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
+import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { apiGet, apiPatch, apiDelete } from "../lib/api.js";
 import { printFinalReceipt, autoPrintEnabled } from "../lib/printJob.js";
@@ -120,6 +121,7 @@ export default function BillRequest() {
           </button>
         }
       />
+      <SectionTabs tabs={SECTIONS.tables} />
 
       <div className="mb-5 flex flex-wrap gap-2">
         {TABS.map((t) => {

@@ -13,6 +13,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
+import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import StatCard from "../components/StatCard.jsx";
 import { apiGet, apiPost, apiDelete } from "../lib/api.js";
 
@@ -67,6 +68,7 @@ export default function ShiftPage() {
           </div>
         }
       />
+      <SectionTabs tabs={SECTIONS.shift} />
 
       {isOpen ? (
         <ActiveShift

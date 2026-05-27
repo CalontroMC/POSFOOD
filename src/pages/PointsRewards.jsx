@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Gift, Clock, CheckCircle2, Pencil, Trash2 } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
+import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import { rewards, members } from "../lib/mockData.js";
 
 const TABS = [
@@ -20,6 +21,7 @@ export default function PointsRewards() {
         title="จัดการแต้มและรางวัล"
         subtitle="ตั้งค่าระบบแต้มสะสมและรางวัลแลกแต้ม"
       />
+      <SectionTabs tabs={SECTIONS.members} />
 
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="card border-l-4 border-l-brand-orange p-5">

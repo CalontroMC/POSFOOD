@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X, UserCheck, UserX } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
+import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import Toggle from "../components/Toggle.jsx";
 import { apiGet, apiPost, apiPatch, apiDelete } from "../lib/api.js";
 
@@ -65,6 +66,7 @@ export default function Employees() {
           </button>
         }
       />
+      <SectionTabs tabs={SECTIONS.shift} />
 
       <Section title="ใช้งานอยู่" Icon={UserCheck} count={active.length}>
         <Grid list={active} onEdit={setEditing} onDelete={del} colorOffset={0} />

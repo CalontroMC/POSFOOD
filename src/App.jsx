@@ -8,7 +8,6 @@ import MenuManagement from "./pages/MenuManagement.jsx";
 import TableManagement from "./pages/TableManagement.jsx";
 import Members from "./pages/Members.jsx";
 import Orders from "./pages/Orders.jsx";
-import Reservations from "./pages/Reservations.jsx";
 import Stock from "./pages/Stock.jsx";
 import PointsRewards from "./pages/PointsRewards.jsx";
 import PaymentQR from "./pages/PaymentQR.jsx";
@@ -49,7 +48,6 @@ function AdminRoutes() {
         <Route path="/timeclock" element={<Timeclock />} />
         <Route path="/shift" element={<ShiftPage />} />
         <Route path="/orders" element={<Orders />} />
-        <Route path="/reservations" element={<Reservations />} />
         <Route path="/stock" element={<Stock />} />
         <Route path="/barcodes" element={<BarcodePrint />} />
         <Route path="/points-manage" element={<PointsRewards />} />

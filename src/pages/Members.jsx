@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Pencil, Trash2, Users, Activity, Gift, X, History } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
+import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import StatCard from "../components/StatCard.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { apiGet, apiPost, apiPatch, apiDelete } from "../lib/api.js";
@@ -76,6 +77,7 @@ export default function Members() {
           </button>
         }
       />
+      <SectionTabs tabs={SECTIONS.members} />
 
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard
