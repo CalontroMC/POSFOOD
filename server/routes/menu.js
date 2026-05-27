@@ -1,0 +1,153 @@
+import { Router } from "express";
+import db from "../db.js";
+import { adminRequired } from "../middleware/auth.js";
+import menuOptionsRouter, { loadOptionsForItem } from "./menuOptions.js";
+import recipesRouter, { loadRecipeForItem } from "./recipes.js";
+
+const r = Router();
+
+r.get("/categories", (req, res) => {
+  const rows = db
+    .prepare(
+      "SELECT id, name, sort_order, kitchen FROM categories ORDER BY sort_order, id"
+    )
+    .all();
+  res.json(rows.map((r) => ({ ...r, kitchen: !!r.kitchen })));
+});
+
+r.post("/categories", adminRequired, (req, res) => {
+  const { name, sort_order = 0, kitchen = 1 } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  const info = db
+    .prepare("INSERT INTO categories (name, sort_order, kitchen) VALUES (?, ?, ?)")
+    .run(name, Number(sort_order) || 0, kitchen ? 1 : 0);
+  res.json({ id: info.lastInsertRowid });
+});
+
+r.patch("/categories/:id", adminRequired, (req, res) => {
+  const id = Number(req.params.id);
+  const fields = ["name", "sort_order", "kitchen"];
+  const sets = [];
+  const vals = [];
+  for (const f of fields) {
+    if (req.body && f in req.body) {
+      sets.push(`${f} = ?`);
+      vals.push(f === "kitchen" ? (req.body[f] ? 1 : 0) : req.body[f]);
+    }
+  }
+  if (sets.length === 0) return res.json({ ok: true });
+  vals.push(id);
+  db.prepare(`UPDATE categories SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+  res.json({ ok: true });
+});
+
+// Bulk toggle: set kitchen flag on all menu items in this category
+r.patch("/categories/:id/kitchen", adminRequired, (req, res) => {
+  const id = Number(req.params.id);
+  const kitchen = req.body?.kitchen ? 1 : 0;
+  db.transaction(() => {
+    db.prepare("UPDATE categories SET kitchen = ? WHERE id = ?").run(kitchen, id);
+    db.prepare("UPDATE menu_items SET kitchen = ? WHERE category_id = ?").run(kitchen, id);
+  })();
+  const count = db
+    .prepare("SELECT COUNT(*) AS n FROM menu_items WHERE category_id = ?")
+    .get(id).n;
+  res.json({ ok: true, kitchen: !!kitchen, items_updated: count });
+});
+
+r.delete("/categories/:id", adminRequired, (req, res) => {
+  db.prepare("DELETE FROM categories WHERE id = ?").run(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+r.get("/items", (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT m.id, m.name, m.description, m.price, m.points, m.image_url,
+              m.available, m.kitchen, m.category_id, c.name AS category_name
+       FROM menu_items m
+       LEFT JOIN categories c ON c.id = m.category_id
+       ORDER BY c.sort_order, m.id`
+    )
+    .all();
+  const withOpts = req.query.with === "options";
+  if (withOpts) {
+    return res.json(
+      rows.map((r) => ({ ...r, options: loadOptionsForItem(r.id) }))
+    );
+  }
+  res.json(rows);
+});
+
+r.get("/items/:id", (req, res) => {
+  const id = Number(req.params.id);
+  const row = db
+    .prepare(
+      `SELECT m.id, m.name, m.description, m.price, m.points, m.image_url,
+              m.available, m.kitchen, m.category_id, c.name AS category_name
+       FROM menu_items m
+       LEFT JOIN categories c ON c.id = m.category_id
+       WHERE m.id = ?`
+    )
+    .get(id);
+  if (!row) return res.status(404).json({ error: "not found" });
+  res.json({ ...row, options: loadOptionsForItem(id) });
+});
+
+r.post("/items", adminRequired, (req, res) => {
+  const { name, category_id, price, points = 0, image_url, description, available = 1, kitchen = 1 } =
+    req.body || {};
+  if (!name || price == null)
+    return res.status(400).json({ error: "name and price required" });
+  const info = db
+    .prepare(
+      "INSERT INTO menu_items (name, category_id, price, points, image_url, description, available, kitchen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .run(
+      name,
+      category_id || null,
+      Number(price),
+      Number(points) || 0,
+      image_url || null,
+      description || null,
+      available ? 1 : 0,
+      kitchen ? 1 : 0
+    );
+  res.json({ id: info.lastInsertRowid });
+});
+
+r.patch("/items/:id", adminRequired, (req, res) => {
+  const id = Number(req.params.id);
+  const fields = [
+    "name",
+    "description",
+    "category_id",
+    "price",
+    "points",
+    "image_url",
+    "available",
+    "kitchen",
+  ];
+  const sets = [];
+  const vals = [];
+  for (const f of fields) {
+    if (req.body && f in req.body) {
+      sets.push(`${f} = ?`);
+      vals.push(req.body[f]);
+    }
+  }
+  if (sets.length === 0) return res.json({ ok: true });
+  vals.push(id);
+  db.prepare(`UPDATE menu_items SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+  res.json({ ok: true });
+});
+
+r.delete("/items/:id", adminRequired, (req, res) => {
+  db.prepare("DELETE FROM menu_items WHERE id = ?").run(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+r.use("/items/:itemId/options", menuOptionsRouter);
+r.use("/items/:itemId/recipe", recipesRouter);
+
+export default r;
