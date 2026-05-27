@@ -1,6 +1,7 @@
 import { Plus, QrCode } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 
 export default function PaymentQR() {
   return (
@@ -15,6 +16,7 @@ export default function PaymentQR() {
           </button>
         }
       />
+      <SectionTabs tabs={SECTIONS.settings} />
 
       <div className="card">
         <EmptyState

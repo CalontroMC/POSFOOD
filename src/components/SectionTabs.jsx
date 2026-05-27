@@ -59,4 +59,8 @@ export const SECTIONS = {
     { to: "/members", label: "สมาชิก" },
     { to: "/points-manage", label: "จัดการแต้ม" },
   ],
+  settings: [
+    { to: "/settings", label: "ตั้งค่าร้าน" },
+    { to: "/payment-qr", label: "QR ชำระเงิน" },
+  ],
 };

@@ -20,6 +20,7 @@ import useShiftStatus from "../lib/useShiftStatus.js";
 //   /tables       includes  /bill-history (เรียกเช็คบิล)
 //   /shift        includes  /employees + /timeclock
 //   /members      includes  /points-manage
+//   /settings     includes  /payment-qr  (QR ชำระเงิน)
 // Removed: /reservations (feature dropped per owner request).
 const NAV = [
   { to: "/", label: "สั่งอาหาร", Icon: ShoppingCart },
@@ -32,7 +33,6 @@ const NAV = [
   { to: "/stock", label: "สต็อกวัตถุดิบ", Icon: Package },
   { to: "/barcodes", label: "พิมพ์บาร์โค้ด", Icon: QrCode },
   { to: "/members", label: "สมาชิก", Icon: User },
-  { to: "/payment-qr", label: "QR ชำระเงิน", Icon: QrCode },
   { to: "/settings", label: "ตั้งค่าร้าน", Icon: SettingsIcon },
 ];
 

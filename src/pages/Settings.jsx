@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Store, Key, Save, LogOut, Volume2, VolumeX, AlertTriangle, Trash2, Play, Printer, Search, CheckCircle2, Wifi, Smartphone } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
+import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import Toggle from "../components/Toggle.jsx";
 import { apiGet, apiPut, apiPost } from "../lib/api.js";
 import { useAuth } from "../auth/AuthContext.jsx";
@@ -83,6 +84,7 @@ export default function Settings() {
           </button>
         }
       />
+      <SectionTabs tabs={SECTIONS.settings} />
 
       <form onSubmit={save} className="space-y-5">
         <section className="card p-6">
