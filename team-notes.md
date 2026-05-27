@@ -1178,3 +1178,94 @@ CREATE TABLE inventory_counts (
 - [Restaurant KPIs 2026 — OrderIt](https://orderitnow.in/blog/13-restaurant-analytics-kpis-every-owner-must-track-daily-2026-guide/)
 - [Real-time data in restaurants 2026](https://restauranttechnologynews.com/2026/01/research-79-of-restaurants-say-real-time-data-is-essential-yet-27-cant-reliably-track-basic-kpis/)
 - [KDS efficiency — Lavu](https://lavu.com/5-ways-kitchen-display-systems-improve-restaurant-efficiency/)
+
+
+---
+
+## 📦 Session Handoff — 2026-05-27 (Wi-Fi printer + sidebar + customer Wi-Fi)
+
+> สิ่งที่ทำในเซสชันนี้ + state ที่ next session ต้องรู้
+
+### Commits (newest → oldest)
+
+266bb36  feat(wifi): customer Wi-Fi share with soft-force gate before menu
+0bf8b88  refactor(nav): group /payment-qr under settings via SectionTabs
+89d766c  refactor(nav): consolidate sidebar — group related pages under SectionTabs
+ecf7d4b  initial: FoodPOS — self-host POS + QR ordering + WiFi printer (this is when git init happened)
+
+
+### What got built
+
+**1. Wi-Fi thermal printer (POS-80, 80mm)**
+- Hardware: POS-80 80-VI-WIFI Thermal Printer (Version 80.E-Z04-AA)
+- Transport: TCP 192.168.68.208:9100 (joined WiFi S1NGLEONE over 2.4G via Printer Setup Tool V1.0.9 GUI driven by PowerShell UIA automation)
+- Codepage for Thai: **0xFF (255)** — discovered by brute-force probe; Epson std codepage table does NOT apply to this Chinese OEM. Encoded as TIS-620 byte mapping.
+- Width: **48 chars** (576 dots / line). Stored in DB settings.printer_width=48.
+- Server-side auto-print: customer QR orders fire server/lib/printerJob.js (no admin auth needed since they hit the public POST /api/orders). Admin POS submits _client_print:1 body flag so the server skips and lets the frontend dispatcher handle rawbt/browser modes.
+- DB keys: printer_type=network, printer_ip=192.168.68.208, printer_port=9100, printer_name=POS-80 (the local-USB name, kept for fallback), printer_enabled=1, auto_print=1, printer_width=48
+
+**2. Sidebar consolidation (17 → 11 items)**
+Pages grouped under SectionTabs (src/components/SectionTabs.jsx exports SECTIONS):
+- /tables ← /tables + /bill-history (เรียกเช็คบิล)
+- /shift ← /shift + /employees + /timeclock
+- /members ← /members + /points-manage
+- /settings ← /settings + /payment-qr
+- Removed: /reservations route + Reservations.jsx (feature dropped)
+- Order in NAV: สั่งอาหาร → จัดการเมนู → รายงาน → กะ/เงินสด → จัดการโต๊ะ → KDS → ออเดอร์ → สต็อก → บาร์โค้ด → สมาชิก → ตั้งค่า
+
+**3. Customer Wi-Fi share (soft-force gate)**
+- server/routes/wifi.js — public endpoints (no auth):
+  - GET /api/wifi/info → { enabled, ssid, password, encryption, hidden }
+  - GET /api/wifi/qr.png and .svg → WIFI: URI QR
+  - GET /api/wifi/profile.mobileconfig → iOS profile (Content-Type application/x-apple-aspen-config)
+- src/components/WifiGate.jsx — full-screen overlay on /order before menu
+- localStorage key: foodpos_wifi_ack (per-device, persists across visits)
+- DB keys: wifi_enabled, wifi_ssid, wifi_password, wifi_encryption (WPA|WEP|nopass), wifi_hidden
+- Settings UI card: Wi-Fi ฟรีสำหรับลูกค้า in /settings with live QR preview
+
+### Files created this session
+
+scripts/configure-printer.mjs       — set printer settings via better-sqlite3 (idempotent)
+scripts/codepage-probe.mjs          — print 12 codepage candidates in 1 ticket
+scripts/test-thai-ticket.mjs        — end-to-end test with real escpos.js builders
+server/lib/printerJob.js            — server-side ESC/POS dispatcher
+server/routes/wifi.js               — WiFi share endpoints
+src/components/SectionTabs.jsx      — shared sub-nav component
+src/components/WifiGate.jsx         — full-screen WiFi connect overlay
+
+
+### Files modified this session
+
+.gitignore (existing) + git init done — was NOT a git repo before
+src/lib/escpos.js                   — codepage 0x15 → 0xFF for Thai
+src/lib/printJob.js                 — local mode now sends raw bytes; reads settings.printer_width
+src/pages/POSPage.jsx               — sends _client_print:1 flag to avoid double-print
+server/routes/orders.js             — POST / now triggers printOrderTickets() fire-and-forget
+server/index.js                     — mounted /api/wifi router
+src/layout/Sidebar.jsx              — NAV array trimmed + reordered
+src/App.jsx                         — removed /reservations import + route
+src/pages/Settings.jsx              — added Wi-Fi config card; new form keys
+src/pages/CustomerOrder.jsx         — fetches /api/wifi/info, renders WifiGate overlay
++ 5 destination pages (TableManagement, BillRequest, ShiftPage, Employees,
+  Timeclock, Members, PointsRewards, PaymentQR) — each got SectionTabs at top
+
+
+### Running state
+- Server: FoodPOS Server (autostart) scheduled task, on port 3000. Restart via Start-ScheduledTask -TaskName 'FoodPOS Server (autostart)'
+- Last known PID: 35264 (after final restart in this session)
+- dist/ is rebuilt with all changes
+- DB at data/foodpos.db (in .gitignore — local-only)
+
+### Known quirks / gotchas
+- The router (TP-Link Deco M4R) shows up at 192.168.68.1 from the Wi-Fi side and 192.168.1.1 from the Ethernet side — same physical AP exposing 2 subnets. Printer ended up on 192.168.68.208 (WiFi subnet). PC on Ethernet (192.168.1.101) can still reach it because the AP routes between subnets internally.
+- S1NGLEONE SSID = both 2.4G + 5G (band steering merged). PC connected at 5G (802.11ac), printer needed 2.4G — both work fine, they just landed on different subnets.
+- The plugin hook check-sql-files.py is broken (path doesn't exist) and emits errors after every Edit/Write — they're NOT real lint failures. Safe to ignore. Possibly a leftover from a removed plugin.
+- POS-80 self-test print is triggered by holding FEED while powering on; Printer Setup Tool V1.0.9 (in %TEMP%\Rar.13350\80MM Thermal Printer Driver & Tools) and Printer_tools_V3.2 both work via USB.
+- Captive Portal was discussed; Deco M4R **does NOT support it**. The Wi-Fi gate in CustomerOrder is a SOFT enforcement — no real network-level block.
+
+### Open / next ideas
+- Settings PIN test for the test page mentioned in printers.js test endpoint — we never wired the admin ทดสอบพิมพ์ button to the new printer_width value; should pass it explicitly.
+- The 5 Wi-Fi DB keys are stored via the generic settings PUT — no migration needed (settings is k/v). But if we ever add wifi_*-only validation, do it in server/routes/wifi.js, not settings.js.
+- PaymentQR.jsx is still a placeholder (no backend). User explicitly dropped the original idea of QR-codes-for-payment in favor of moving the page into Settings tabs.
+- Reservations.jsx was deleted; if anyone references it later it's gone — re-init schema doesn't need to drop tables, since reservations was UI-only (no DB table specific to it).
+- The frontend bundle is 897KB minified (chunk-size warning from Vite). Consider code-split when it actually matters; not urgent.
