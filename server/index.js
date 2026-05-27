@@ -21,6 +21,7 @@ import reportsRouter from "./routes/reports.js";
 import timeclockRouter from "./routes/timeclock.js";
 import printersRouter from "./routes/printers.js";
 import billRequestsRouter from "./routes/billRequests.js";
+import wifiRouter from "./routes/wifi.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 ensureDb();
@@ -47,6 +48,7 @@ app.use("/api/reports", reportsRouter);
 app.use("/api/timeclock", timeclockRouter);
 app.use("/api/printers", printersRouter);
 app.use("/api/bill-requests", billRequestsRouter);
+app.use("/api/wifi", wifiRouter);
 
 app.use(
   "/uploads",

@@ -18,10 +18,14 @@ import {
 } from "lucide-react";
 import { apiGet, apiPost, cachedGet } from "../lib/api.js";
 import MenuOptionPicker from "../components/MenuOptionPicker.jsx";
+import WifiGate from "../components/WifiGate.jsx";
 
 const MEMBER_KEY = "foodpos_customer_phone";
 const ORDERED_KEY = (tok) => `foodpos_has_ordered_${tok}`;
 const BILL_CALLED_KEY = (tok) => `foodpos_bill_called_${tok}`;
+// Gate is "soft": we can't read the device's actual WiFi, so once the
+// customer taps "ดูเมนู" we trust them and remember per-device.
+const WIFI_ACK_KEY = "foodpos_wifi_ack";
 // Bill call cooldown (ms) — after calling, button stays in "called" state for this long
 const BILL_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -46,6 +50,18 @@ export default function CustomerOrder() {
   const [billStatus, setBillStatus] = useState("idle"); // idle | calling | called
   const [billErr, setBillErr] = useState("");
   const [pointsToRedeem, setPointsToRedeem] = useState(""); // 1 pt = 1 baht
+  // Wi-Fi gate state — fetched once per page load
+  const [wifi, setWifi] = useState(null);
+  const [wifiAck, setWifiAck] = useState(
+    () => typeof localStorage !== "undefined" && localStorage.getItem(WIFI_ACK_KEY) === "1"
+  );
+
+  // Fetch shop Wi-Fi config (returns {enabled:false} when admin hasn't set it up)
+  useEffect(() => {
+    apiGet("/wifi/info", { auth: false })
+      .then(setWifi)
+      .catch(() => setWifi({ enabled: false }));
+  }, []);
 
   // Load table by QR token
   useEffect(() => {
@@ -261,8 +277,17 @@ export default function CustomerOrder() {
     );
   }
 
+  // Soft-force Wi-Fi connect before menu — gate only blocks when admin has
+  // enabled wifi_share AND the customer hasn't tapped "ดูเมนู" yet on this device.
+  const showWifiGate = wifi?.enabled && !!wifi.ssid && !wifiAck;
+  const handleWifiContinue = () => {
+    try { localStorage.setItem(WIFI_ACK_KEY, "1"); } catch {}
+    setWifiAck(true);
+  };
+
   return (
     <div className="min-h-screen bg-brand-cream pb-32">
+      {showWifiGate && <WifiGate wifi={wifi} onContinue={handleWifiContinue} />}
       <header className="sticky top-0 z-10 bg-white shadow-sm">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <div>

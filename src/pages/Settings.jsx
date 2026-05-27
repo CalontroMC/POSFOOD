@@ -28,7 +28,14 @@ export default function Settings() {
     printer_enabled: "0",
     printer_type: "network", // 'rawbt' | 'browser' | 'network' | 'local'
     auto_print: "1", // auto-print kitchen+bar tickets on submit, receipt on close
+    // Customer Wi-Fi share — gates the customer QR order page
+    wifi_enabled: "0",
+    wifi_ssid: "",
+    wifi_password: "",
+    wifi_encryption: "WPA", // 'WPA' | 'WEP' | 'nopass'
+    wifi_hidden: "0",
   });
+  const [showPwd, setShowPwd] = useState(false);
   const [pin, setPin] = useState({ a: "", b: "" });
   const [volume, setVolume] = useState(getNotifVolume());
   const [msg, setMsg] = useState("");
@@ -210,6 +217,110 @@ export default function Settings() {
               <Play size={12} /> ลองฟัง
             </button>
           </div>
+        </section>
+
+        <section className="card p-6">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-100 text-sky-600">
+                <Wifi size={18} />
+              </div>
+              <h2 className="text-base font-bold text-gray-900">
+                Wi-Fi ฟรีสำหรับลูกค้า
+              </h2>
+            </div>
+            <Toggle
+              checked={form.wifi_enabled === "1"}
+              onChange={(v) => setForm({ ...form, wifi_enabled: v ? "1" : "0" })}
+              label={form.wifi_enabled === "1" ? "เปิดใช้" : "ปิด"}
+            />
+          </div>
+          <p className="mb-4 text-sm text-gray-500">
+            เมื่อเปิดใช้ ลูกค้าที่สแกน QR โต๊ะจะเห็นหน้าต่างต่อ Wi-Fi ก่อนเข้าเมนู
+            (มี QR ให้สแกนต่อ + รหัสผ่านให้กดคัดลอก + ปุ่มติดตั้งโปรไฟล์สำหรับ iPhone)
+          </p>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="ชื่อ Wi-Fi (SSID)">
+              <input
+                type="text"
+                value={form.wifi_ssid || ""}
+                onChange={update("wifi_ssid")}
+                placeholder="เช่น S1NGLEONE-Guest"
+                className="input"
+                autoComplete="off"
+              />
+            </Field>
+
+            <Field label="ระบบเข้ารหัส">
+              <select
+                value={form.wifi_encryption || "WPA"}
+                onChange={update("wifi_encryption")}
+                className="input"
+              >
+                <option value="WPA">WPA / WPA2 / WPA3</option>
+                <option value="WEP">WEP (เก่า)</option>
+                <option value="nopass">ไม่มีรหัสผ่าน (Open)</option>
+              </select>
+            </Field>
+
+            {form.wifi_encryption !== "nopass" && (
+              <Field label="รหัสผ่าน Wi-Fi">
+                <div className="flex gap-1">
+                  <input
+                    type={showPwd ? "text" : "password"}
+                    value={form.wifi_password || ""}
+                    onChange={update("wifi_password")}
+                    placeholder="รหัสผ่าน WiFi"
+                    className="input flex-1"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwd((v) => !v)}
+                    className="rounded-xl border border-gray-200 px-3 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                  >
+                    {showPwd ? "ซ่อน" : "แสดง"}
+                  </button>
+                </div>
+              </Field>
+            )}
+
+            <Field label="ตัวเลือก">
+              <label className="flex items-center gap-2 pt-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={form.wifi_hidden === "1"}
+                  onChange={(e) =>
+                    setForm({ ...form, wifi_hidden: e.target.checked ? "1" : "0" })
+                  }
+                  className="h-4 w-4 accent-brand-orange"
+                />
+                เครือข่ายซ่อน (Hidden SSID)
+              </label>
+            </Field>
+          </div>
+
+          {form.wifi_enabled === "1" && form.wifi_ssid && (
+            <div className="mt-5 flex items-center gap-4 rounded-xl border border-dashed border-gray-200 p-4">
+              <img
+                src={`/api/wifi/qr.png?v=${encodeURIComponent(form.wifi_ssid + form.wifi_password)}`}
+                alt="WiFi QR preview"
+                className="h-24 w-24 rounded border border-gray-200"
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+              />
+              <div className="text-xs text-gray-600">
+                <div className="mb-1 font-semibold text-gray-700">QR Preview</div>
+                <div>กดบันทึกแล้วลอง refresh — ลูกค้าจะเห็น QR นี้ในหน้าสั่งอาหาร</div>
+                <a
+                  href="/api/wifi/profile.mobileconfig"
+                  className="mt-1 inline-flex items-center gap-1 text-sky-600 hover:underline"
+                >
+                  <Smartphone size={12} /> ทดสอบ iOS profile
+                </a>
+              </div>
+            </div>
+          )}
         </section>
 
         <PrinterSection
