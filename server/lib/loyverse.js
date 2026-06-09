@@ -87,3 +87,19 @@ export function buildReceiptPayload(order, lineItems, config) {
     payments: [{ payment_type_id: ptId, money_amount: Number(order.total) }],
   };
 }
+
+export function loadConfig(db) {
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'loyverse_%'").all();
+  const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return {
+    enabled: s.loyverse_enabled === "1",
+    token: s.loyverse_token || "",
+    storeId: s.loyverse_store_id || "",
+    paymentTypeMap: {
+      cash: s.loyverse_pt_cash || "",
+      qr: s.loyverse_pt_qr || "",
+      card: s.loyverse_pt_card || "",
+      other: s.loyverse_pt_other || "",
+    },
+  };
+}

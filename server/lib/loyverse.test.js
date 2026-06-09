@@ -101,3 +101,35 @@ test("listPaymentTypes: returns array", async () => {
   const out = await listPaymentTypes({ token: "T", fetchImpl: f });
   assert.equal(out[0].id, "PT");
 });
+
+import Database from "better-sqlite3";
+import { loadConfig } from "./loyverse.js";
+
+function seedSettings(pairs) {
+  const db = new Database(":memory:");
+  db.exec("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)");
+  const ins = db.prepare("INSERT INTO settings (key,value) VALUES (?,?)");
+  for (const [k, v] of Object.entries(pairs)) ins.run(k, v);
+  return db;
+}
+
+test("loadConfig: reads token/store/payment map + enabled flag", () => {
+  const db = seedSettings({
+    loyverse_enabled: "1",
+    loyverse_token: "TOK",
+    loyverse_store_id: "S1",
+    loyverse_pt_cash: "PT_CASH",
+    loyverse_pt_qr: "PT_QR",
+  });
+  const cfg = loadConfig(db);
+  assert.equal(cfg.enabled, true);
+  assert.equal(cfg.token, "TOK");
+  assert.equal(cfg.storeId, "S1");
+  assert.equal(cfg.paymentTypeMap.cash, "PT_CASH");
+  assert.equal(cfg.paymentTypeMap.qr, "PT_QR");
+});
+
+test("loadConfig: enabled=false when flag missing/0", () => {
+  const db = seedSettings({ loyverse_token: "T" });
+  assert.equal(loadConfig(db).enabled, false);
+});
