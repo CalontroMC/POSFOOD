@@ -55,3 +55,49 @@ test("buildReceiptPayload: throws ReceiptTotalMismatchError when total != sum (d
   const items = [{ name: "x", price: 119, qty: 2, loyverse_variant_id: "V" }]; // sum=238 != total 200
   assert.throws(() => buildReceiptPayload(order, items, config), ReceiptTotalMismatchError);
 });
+
+import { createReceipt, testConnection, listPaymentTypes } from "./loyverse.js";
+
+function mockFetch(responses) {
+  // responses: array of { status, body }
+  let i = 0;
+  return async () => {
+    const r = responses[i++] || responses[responses.length - 1];
+    return {
+      ok: r.status >= 200 && r.status < 300,
+      status: r.status,
+      async text() { return JSON.stringify(r.body); },
+      async json() { return r.body; },
+    };
+  };
+}
+
+test("testConnection: returns stores on 200", async () => {
+  const f = mockFetch([{ status: 200, body: { stores: [{ id: "S1", name: "ร้าน" }] } }]);
+  const res = await testConnection({ token: "T", fetchImpl: f });
+  assert.equal(res.ok, true);
+  assert.equal(res.stores[0].name, "ร้าน");
+});
+
+test("testConnection: ok=false on 401", async () => {
+  const f = mockFetch([{ status: 401, body: { error: "unauthorized" } }]);
+  const res = await testConnection({ token: "bad", fetchImpl: f });
+  assert.equal(res.ok, false);
+});
+
+test("createReceipt: returns receipt_number on success", async () => {
+  const f = mockFetch([{ status: 200, body: { receipt_number: "1-1234" } }]);
+  const out = await createReceipt({ store_id: "S1", line_items: [], payments: [] }, { token: "T", fetchImpl: f });
+  assert.equal(out.receipt_number, "1-1234");
+});
+
+test("createReceipt: throws on non-2xx with body message", async () => {
+  const f = mockFetch([{ status: 422, body: { errors: [{ details: "bad" }] } }]);
+  await assert.rejects(() => createReceipt({}, { token: "T", fetchImpl: f }), /422/);
+});
+
+test("listPaymentTypes: returns array", async () => {
+  const f = mockFetch([{ status: 200, body: { payment_types: [{ id: "PT", name: "Cash" }] } }]);
+  const out = await listPaymentTypes({ token: "T", fetchImpl: f });
+  assert.equal(out[0].id, "PT");
+});

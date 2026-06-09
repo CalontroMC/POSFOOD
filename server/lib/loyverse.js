@@ -13,6 +13,55 @@ export class ReceiptTotalMismatchError extends Error {
   }
 }
 
+const BASE = "https://api.loyverse.com/v1.0";
+
+async function call(pathAndQuery, { token, method = "GET", body, fetchImpl } = {}) {
+  const doFetch = fetchImpl || fetch;
+  const res = await doFetch(`${BASE}${pathAndQuery}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    const detail = typeof data === "string" ? data : JSON.stringify(data);
+    const err = new Error(`Loyverse ${res.status}: ${detail}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+export async function testConnection({ token, fetchImpl } = {}) {
+  try {
+    const data = await call("/stores", { token, fetchImpl });
+    return { ok: true, stores: data.stores || [] };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+export async function listPaymentTypes({ token, fetchImpl } = {}) {
+  const data = await call("/payment_types", { token, fetchImpl });
+  return data.payment_types || [];
+}
+
+export async function listItems({ token, cursor, fetchImpl } = {}) {
+  const q = cursor ? `?limit=250&cursor=${encodeURIComponent(cursor)}` : "?limit=250";
+  const data = await call(`/items${q}`, { token, fetchImpl });
+  return { items: data.items || [], cursor: data.cursor || null };
+}
+
+export async function createReceipt(payload, { token, fetchImpl } = {}) {
+  return call("/receipts", { token, method: "POST", body: payload, fetchImpl });
+}
+
 // pure: order + lineItems + config -> Loyverse POST /receipts payload
 export function buildReceiptPayload(order, lineItems, config) {
   const unmapped = lineItems.filter((it) => !it.loyverse_variant_id).map((it) => it.name);
