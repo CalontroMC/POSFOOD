@@ -133,3 +133,16 @@ test("loadConfig: enabled=false when flag missing/0", () => {
   const db = seedSettings({ loyverse_token: "T" });
   assert.equal(loadConfig(db).enabled, false);
 });
+
+test("buildReceiptPayload: uses order.receipt_date when provided", () => {
+  const order = { order_number: "A", payment_method: "cash", total: 10, receipt_date: "2026-06-09T03:00:00.000Z" };
+  const items = [{ name: "x", price: 10, qty: 1, loyverse_variant_id: "V" }];
+  assert.equal(buildReceiptPayload(order, items, config).receipt_date, "2026-06-09T03:00:00.000Z");
+});
+
+test("ReceiptTotalMismatchError carries sum and total", () => {
+  const order = { order_number: "A", payment_method: "cash", total: 200, discount: 38 };
+  const items = [{ name: "x", price: 119, qty: 2, loyverse_variant_id: "V" }];
+  try { buildReceiptPayload(order, items, config); assert.fail("should throw"); }
+  catch (e) { assert.equal(e.sum, 238); assert.equal(e.total, 200); }
+});

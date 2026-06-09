@@ -10,6 +10,8 @@ export class ReceiptTotalMismatchError extends Error {
   constructor(sum, total) {
     super(`ยอดรวมรายการ (${sum}) ไม่ตรงกับยอดบิล (${total}) — มีส่วนลด/ใช้แต้ม ยังไม่รองรับใน v1`);
     this.name = "ReceiptTotalMismatchError";
+    this.sum = sum;
+    this.total = total;
   }
 }
 
@@ -68,7 +70,8 @@ export function buildReceiptPayload(order, lineItems, config) {
   if (unmapped.length) throw new UnmappedItemError(unmapped);
 
   const sum = lineItems.reduce((s, it) => s + Number(it.price) * Number(it.qty), 0);
-  if (sum !== Number(order.total)) throw new ReceiptTotalMismatchError(sum, order.total);
+  if (Math.round(sum * 100) !== Math.round(Number(order.total) * 100))
+    throw new ReceiptTotalMismatchError(sum, order.total);
 
   const method = order.payment_method || "cash";
   const ptId = config.paymentTypeMap[method];
@@ -76,7 +79,7 @@ export function buildReceiptPayload(order, lineItems, config) {
 
   return {
     store_id: config.storeId,
-    receipt_date: new Date().toISOString(),
+    receipt_date: order.receipt_date || new Date().toISOString(),
     note: `FoodPOS #${order.order_number}`,
     line_items: lineItems.map((it) => ({
       variant_id: it.loyverse_variant_id,
