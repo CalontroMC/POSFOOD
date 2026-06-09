@@ -3,6 +3,7 @@ import { Store, Key, Save, LogOut, Volume2, VolumeX, AlertTriangle, Trash2, Play
 import PageHeader from "../components/PageHeader.jsx";
 import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import Toggle from "../components/Toggle.jsx";
+import LoyverseSettings from "../components/LoyverseSettings.jsx";
 import { apiGet, apiPut, apiPost } from "../lib/api.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { getNotifVolume, setNotifVolume, previewBeep } from "../lib/useOrderNotifications.js";
@@ -34,6 +35,14 @@ export default function Settings() {
     wifi_password: "",
     wifi_encryption: "WPA", // 'WPA' | 'WEP' | 'nopass'
     wifi_hidden: "0",
+    // Loyverse integration
+    loyverse_enabled: "0",
+    loyverse_token_set: "0",
+    loyverse_store_id: "",
+    loyverse_pt_cash: "",
+    loyverse_pt_qr: "",
+    loyverse_pt_card: "",
+    loyverse_pt_other: "",
   });
   const [showPwd, setShowPwd] = useState(false);
   const [pin, setPin] = useState({ a: "", b: "" });
@@ -324,6 +333,12 @@ export default function Settings() {
         </section>
 
         <PrinterSection
+          form={form}
+          setForm={setForm}
+          onSavedToast={(t) => { setMsg(t); setTimeout(() => setMsg(""), 2500); }}
+        />
+
+        <LoyverseSettings
           form={form}
           setForm={setForm}
           onSavedToast={(t) => { setMsg(t); setTimeout(() => setMsg(""), 2500); }}
