@@ -82,3 +82,16 @@ test("sync: API failure → status failed, retriable", async () => {
   assert.equal(log.status, "failed");
   assert.equal(log.attempts, 1);
 });
+
+test("sync: retry of failed order preserves created_at and increments attempts", async () => {
+  const db = makeDb();
+  seedOrder(db, { id: 6, total: 50, items: [{ menu_item_id: 1, name: "กาแฟ", price: 50, qty: 1 }] });
+  const failFetch = async () => ({ ok: false, status: 500, async text() { return "{}"; } });
+  await syncOrderToLoyverse(6, { db, fetchImpl: failFetch });
+  const first = db.prepare("SELECT created_at, attempts FROM loyverse_sync_log WHERE order_id=6").get();
+  assert.equal(first.attempts, 1);
+  await syncOrderToLoyverse(6, { db, fetchImpl: failFetch });
+  const second = db.prepare("SELECT created_at, attempts FROM loyverse_sync_log WHERE order_id=6").get();
+  assert.equal(second.attempts, 2);
+  assert.equal(second.created_at, first.created_at);
+});
