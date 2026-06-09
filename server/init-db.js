@@ -255,6 +255,24 @@ export function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_loyalty_tx_member ON loyalty_transactions(member_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_loyalty_tx_order ON loyalty_transactions(order_id);
   `);
+
+  // --- Loyverse sync ---
+  ensureColumn("menu_items", "loyverse_variant_id", "TEXT");
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS loyverse_sync_log (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id       INTEGER NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+      status         TEXT NOT NULL DEFAULT 'pending',
+      receipt_number TEXT,
+      error          TEXT,
+      payload_json   TEXT,
+      attempts       INTEGER NOT NULL DEFAULT 0,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_loyverse_sync_status ON loyverse_sync_log(status);
+  `);
 }
 
 export function seedIfEmpty() {
