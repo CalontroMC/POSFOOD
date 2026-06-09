@@ -188,3 +188,10 @@ export const Auth = {
     return !!getToken();
   },
 };
+
+// --- Loyverse ---
+export const loyverseStatus = () => api("/loyverse/status");
+export const loyversePaymentTypes = () => api("/loyverse/payment-types");
+export const loyverseItems = (cursor) => api(`/loyverse/items${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+export const loyverseSyncLog = (status) => api(`/loyverse/sync-log${status ? `?status=${status}` : ""}`);
+export const loyverseRetry = (orderId) => api(`/loyverse/sync/${orderId}`, { method: "POST" });
