@@ -8,6 +8,9 @@ r.get("/", (req, res) => {
   const rows = db.prepare("SELECT key, value FROM settings").all();
   const obj = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   delete obj.admin_pin;
+  // อย่าส่ง token ออก client — แทนด้วย flag ว่ามีค่าตั้งไว้แล้วหรือยัง
+  obj.loyverse_token_set = obj.loyverse_token ? "1" : "0";
+  delete obj.loyverse_token;
   res.json(obj);
 });
 
