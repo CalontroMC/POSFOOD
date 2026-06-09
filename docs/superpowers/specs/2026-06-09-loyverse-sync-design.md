@@ -73,9 +73,11 @@ FoodPOS ทำงานครบแล้ว (สแกน QR ที่โต๊
 ```
 
 > **หมายเหตุราคา:** FoodPOS เก็บราคาเป็นจำนวนเต็ม (บาท ไม่มีสตางค์) — ส่งตรงเป็น `price`/`money_amount` ได้
-> **ส่วนลด:** order มี `discount` (ระดับบิล) + order_items มี `discount_value/discount_type` (ระดับ item)
-> map ระดับ item → `line_discounts`; ส่วนลดบิลที่เหลือ → `total_discounts` ระดับ receipt
-> ยอดรวม `payments[].money_amount` ต้องเท่ากับ `orders.total` เป๊ะ (กัน 422 จาก Loyverse)
+> **ส่วนลด (v1 — แบบง่าย, รายละเอียดค่อยทำเฟสหลัง):**
+> - ส่ง `line_items` ที่ราคา order_item ตรง ๆ (รวม option delta แล้ว)
+> - ถ้า `orders.discount > 0` → ใส่เป็น `total_discounts` ระดับ receipt ก้อนเดียว
+> - เป้าหมายเดียวที่ต้องการ: **`sum(payments) === orders.total` เป๊ะ** (กัน 422 จาก Loyverse) และยอดขายรวมตรง
+> - ❌ ยังไม่แตกส่วนลดลงระดับ item (`line_discounts`) — เลื่อนไปเฟสหลัง
 
 ---
 
