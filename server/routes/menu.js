@@ -84,7 +84,8 @@ r.get("/items/:id", (req, res) => {
   const row = db
     .prepare(
       `SELECT m.id, m.name, m.description, m.price, m.points, m.image_url,
-              m.available, m.kitchen, m.category_id, c.name AS category_name
+              m.available, m.kitchen, m.category_id, m.loyverse_variant_id,
+              c.name AS category_name
        FROM menu_items m
        LEFT JOIN categories c ON c.id = m.category_id
        WHERE m.id = ?`
@@ -95,13 +96,13 @@ r.get("/items/:id", (req, res) => {
 });
 
 r.post("/items", adminRequired, (req, res) => {
-  const { name, category_id, price, points = 0, image_url, description, available = 1, kitchen = 1 } =
+  const { name, category_id, price, points = 0, image_url, description, available = 1, kitchen = 1, loyverse_variant_id } =
     req.body || {};
   if (!name || price == null)
     return res.status(400).json({ error: "name and price required" });
   const info = db
     .prepare(
-      "INSERT INTO menu_items (name, category_id, price, points, image_url, description, available, kitchen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO menu_items (name, category_id, price, points, image_url, description, available, kitchen, loyverse_variant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .run(
       name,
@@ -111,7 +112,8 @@ r.post("/items", adminRequired, (req, res) => {
       image_url || null,
       description || null,
       available ? 1 : 0,
-      kitchen ? 1 : 0
+      kitchen ? 1 : 0,
+      loyverse_variant_id || null
     );
   res.json({ id: info.lastInsertRowid });
 });
@@ -127,6 +129,7 @@ r.patch("/items/:id", adminRequired, (req, res) => {
     "image_url",
     "available",
     "kitchen",
+    "loyverse_variant_id",
   ];
   const sets = [];
   const vals = [];

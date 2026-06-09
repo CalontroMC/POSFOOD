@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { X, Plus, Trash2, Beaker } from "lucide-react";
 import Toggle from "../components/Toggle.jsx";
 import ImageUpload from "../components/ImageUpload.jsx";
-import { apiGet, apiPost, apiPatch, apiPut } from "../lib/api.js";
+import { apiGet, apiPost, apiPatch, apiPut, loyverseItems } from "../lib/api.js";
 
 const emptyForm = {
   name: "",
@@ -13,6 +13,7 @@ const emptyForm = {
   image_url: "",
   available: 1,
   kitchen: 1,
+  loyverse_variant_id: "",
 };
 
 export default function MenuItemEditor({ itemId, cats, onClose, onSaved }) {
@@ -23,9 +24,30 @@ export default function MenuItemEditor({ itemId, cats, onClose, onSaved }) {
   const [ingredients, setIngredients] = useState([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [loyVariants, setLoyVariants] = useState([]); // [{ variant_id, item_name, sku, price }]
+  const [loyNotConfigured, setLoyNotConfigured] = useState(false);
+  const [loySearch, setLoySearch] = useState("");
 
   useEffect(() => {
     apiGet("/ingredients", { auth: false }).then(setIngredients);
+  }, []);
+
+  // Load all Loyverse variants (paginated) on mount; fail silently if not configured
+  useEffect(() => {
+    (async () => {
+      try {
+        const all = [];
+        let cursor = null;
+        do {
+          const page = await loyverseItems(cursor);
+          all.push(...(page.variants || []));
+          cursor = page.cursor || null;
+        } while (cursor);
+        setLoyVariants(all);
+      } catch {
+        setLoyNotConfigured(true);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -46,6 +68,7 @@ export default function MenuItemEditor({ itemId, cats, onClose, onSaved }) {
         image_url: item.image_url || "",
         available: item.available ? 1 : 0,
         kitchen: item.kitchen ? 1 : 0,
+        loyverse_variant_id: item.loyverse_variant_id || "",
       });
       setGroups(
         (item.options || []).map((g) => ({
@@ -129,6 +152,7 @@ export default function MenuItemEditor({ itemId, cats, onClose, onSaved }) {
         image_url: form.image_url || null,
         available: form.available ? 1 : 0,
         kitchen: form.kitchen ? 1 : 0,
+        loyverse_variant_id: form.loyverse_variant_id || null,
       };
       let id = itemId;
       if (isEdit) {
@@ -252,6 +276,53 @@ export default function MenuItemEditor({ itemId, cats, onClose, onSaved }) {
                 label="ขึ้นจอครัว (KDS)"
               />
             </div>
+
+            <Field label="Loyverse variant (สินค้าใน Loyverse)">
+              {loyNotConfigured ? (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  เชื่อมต่อ Loyverse ก่อนเพื่อแมปสินค้า
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {loyVariants.length > 0 && (
+                    <input
+                      type="text"
+                      value={loySearch}
+                      onChange={(e) => setLoySearch(e.target.value)}
+                      placeholder="ค้นหาชื่อสินค้า / SKU…"
+                      className="input text-sm"
+                    />
+                  )}
+                  <select
+                    value={form.loyverse_variant_id}
+                    onChange={set("loyverse_variant_id")}
+                    className="input"
+                  >
+                    <option value="">— ไม่แมป —</option>
+                    {loyVariants
+                      .filter((v) => {
+                        if (!loySearch.trim()) return true;
+                        const q = loySearch.toLowerCase();
+                        return (
+                          (v.item_name || "").toLowerCase().includes(q) ||
+                          (v.sku || "").toLowerCase().includes(q)
+                        );
+                      })
+                      .map((v) => (
+                        <option key={v.variant_id} value={v.variant_id}>
+                          {v.item_name}
+                          {v.sku ? ` (${v.sku})` : ""} — ฿{v.price}
+                        </option>
+                      ))}
+                  </select>
+                  {!form.loyverse_variant_id && (
+                    <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+                      ยังไม่แมป
+                    </span>
+                  )}
+                </div>
+              )}
+            </Field>
 
             <div className="pt-2">
               <div className="mb-2 flex items-center gap-2">
