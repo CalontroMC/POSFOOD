@@ -34,11 +34,12 @@ export default function LoyverseSettings({ form, setForm, onSavedToast }) {
   const [syncErr, setSyncErr] = useState("");
   const [retryingId, setRetryingId] = useState(null);
 
-  // ── fetch payment types & sync log on mount ──────────────────────────────
+  // ── fetch payment types & sync log when Loyverse is enabled ─────────────
   useEffect(() => {
+    if (form.loyverse_enabled !== "1") return;
     fetchPaymentTypes();
     fetchSyncLog();
-  }, []); // intentionally run once on mount
+  }, [form.loyverse_enabled]);
 
   async function fetchPaymentTypes() {
     setPtLoading(true);
