@@ -2,6 +2,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { adminRequired, isValidToken } from "../middleware/auth.js";
 import { printOrderTickets } from "../lib/printerJob.js";
+import { syncOrderToLoyverse } from "../lib/loyverseSync.js";
 
 function isAdminRequest(req) {
   const header = req.headers["authorization"] || "";
@@ -573,6 +574,14 @@ r.patch("/:id/status", adminRequired, (req, res) => {
       }
     }
   })();
+
+  // Loyverse: ยิง receipt เมื่อปิดบิล (fire-and-forget, ไม่บล็อก response, ไม่ทำให้ปิดบิลพัง)
+  if (status === "เสร็จสิ้น" && existing.status !== "เสร็จสิ้น") {
+    Promise.resolve()
+      .then(() => syncOrderToLoyverse(id))
+      .catch((e) => console.error("[loyverse] sync trigger failed:", e));
+  }
+
   res.json({ ok: true });
 });
 
