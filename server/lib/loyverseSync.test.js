@@ -9,7 +9,9 @@ function makeDb() {
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE menu_items (id INTEGER PRIMARY KEY, name TEXT, loyverse_variant_id TEXT);
     CREATE TABLE orders (id INTEGER PRIMARY KEY, order_number TEXT, payment_method TEXT,
-                         total INTEGER, discount INTEGER DEFAULT 0, points_redeemed INTEGER DEFAULT 0);
+                         total INTEGER, discount INTEGER DEFAULT 0, points_redeemed INTEGER DEFAULT 0,
+                         table_id INTEGER);
+    CREATE TABLE tables (id INTEGER PRIMARY KEY, table_number TEXT);
     CREATE TABLE order_items (id INTEGER PRIMARY KEY, order_id INTEGER, menu_item_id INTEGER,
                               name TEXT, price INTEGER, qty INTEGER, note TEXT);
     CREATE TABLE loyverse_sync_log (

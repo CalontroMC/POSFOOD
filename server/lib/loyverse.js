@@ -80,7 +80,7 @@ export function buildReceiptPayload(order, lineItems, config) {
   return {
     store_id: config.storeId,
     receipt_date: order.receipt_date || new Date().toISOString(),
-    note: `FoodPOS #${order.order_number}`,
+    note: `FoodPOS #${order.order_number}${order.table_number ? ` โต๊ะ ${order.table_number}` : ""}`,
     line_items: lineItems.map((it) => ({
       variant_id: it.loyverse_variant_id,
       quantity: Number(it.qty),

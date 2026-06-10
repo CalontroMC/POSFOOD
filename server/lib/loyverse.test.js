@@ -146,3 +146,19 @@ test("ReceiptTotalMismatchError carries sum and total", () => {
   try { buildReceiptPayload(order, items, config); assert.fail("should throw"); }
   catch (e) { assert.equal(e.sum, 238); assert.equal(e.total, 200); }
 });
+
+test("buildReceiptPayload: note includes table number when present", () => {
+  const order = { order_number: "B002", payment_method: "cash", total: 10, table_number: "5" };
+  const items = [{ name: "x", price: 10, qty: 1, loyverse_variant_id: "V" }];
+  const p = buildReceiptPayload(order, items, config);
+  assert.ok(p.note.includes("B002"), "note should include order_number");
+  assert.ok(p.note.includes("โต๊ะ 5"), "note should include table number");
+});
+
+test("buildReceiptPayload: note omits table part when table_number is absent", () => {
+  const order = { order_number: "B003", payment_method: "cash", total: 10 };
+  const items = [{ name: "x", price: 10, qty: 1, loyverse_variant_id: "V" }];
+  const p = buildReceiptPayload(order, items, config);
+  assert.ok(p.note.includes("B003"), "note should include order_number");
+  assert.ok(!p.note.includes("โต๊ะ"), "note should not include โต๊ะ when no table_number");
+});

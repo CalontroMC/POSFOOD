@@ -111,8 +111,19 @@ export default function LoyverseSettings({ form, setForm, onSavedToast }) {
     try {
       const r = await loyverseStatus();
       if (r.ok) {
-        const name = r.stores?.[0]?.name || r.storeId || "ร้านค้า";
-        setTestResult({ ok: true, message: `เชื่อมต่อสำเร็จ — ${name}` });
+        const firstStore = r.stores?.[0];
+        const name = firstStore?.name || r.storeId || "ร้านค้า";
+        let msg = `เชื่อมต่อสำเร็จ — ${name}`;
+
+        if (firstStore && (!form.loyverse_store_id || !r.stores.some((s) => s.id === form.loyverse_store_id))) {
+          await apiPut("/settings", { loyverse_store_id: firstStore.id });
+          setForm((f) => ({ ...f, loyverse_store_id: firstStore.id }));
+          msg = r.stores.length > 1
+            ? `เชื่อมต่อสำเร็จ — ${name} (บันทึก store แรกแล้ว)`
+            : `เชื่อมต่อสำเร็จ — ${name} (บันทึก store แล้ว)`;
+        }
+
+        setTestResult({ ok: true, message: msg });
       } else {
         setTestResult({ ok: false, message: r.error || "เชื่อมต่อไม่สำเร็จ" });
       }

@@ -30,7 +30,9 @@ export async function syncOrderToLoyverse(orderId, { db = realDb, fetchImpl } = 
     if (prev && prev.status === "ok") return;
 
     const order = db.prepare(
-      "SELECT id, order_number, payment_method, total, discount, points_redeemed FROM orders WHERE id=?"
+      `SELECT o.id, o.order_number, o.payment_method, o.total, o.discount, o.points_redeemed, t.table_number
+       FROM orders o LEFT JOIN tables t ON t.id = o.table_id
+       WHERE o.id = ?`
     ).get(orderId);
     if (!order) return;
 
