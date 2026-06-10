@@ -161,6 +161,95 @@ r.post("/", (req, res) => {
     });
   }
 
+  // ===== 1 โต๊ะ 1 ตั๋ว =====
+  // ลูกค้า (QR) สั่งเพิ่มระหว่างที่โต๊ะยังไม่เช็คบิล → เติมรายการเข้าออเดอร์เดิม
+  // แทนการเปิดออเดอร์ใหม่ ทำให้ 1 รอบนั่ง = 1 บิล = 1 ใบบันทึกใน Loyverse
+  // (เฉพาะออเดอร์จากลูกค้า — POS แอดมินมีเครื่องมือพัก/แยก/รวมบิลของตัวเองอยู่แล้ว)
+  if (tableId && !hold && !isAdminRequest(req)) {
+    const openOrder = db
+      .prepare(
+        `SELECT id, member_id, points_redeemed, discount_type, discount_value
+         FROM orders
+         WHERE table_id = ? AND status IN ('รอรับ', 'กำลังทำ', 'เสิร์ฟแล้ว')
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(tableId);
+
+    if (openOrder) {
+      try {
+        const newItemIds = db.transaction(() => {
+          const ins = db.prepare(
+            "INSERT INTO order_items (order_id, menu_item_id, name, price, qty, note, options_json) VALUES (?, ?, ?, ?, ?, ?, ?)"
+          );
+          const ids = [];
+          for (const it of itemRows) {
+            const info = ins.run(openOrder.id, it.id, it.name, it.price, it.qty, it.note, it.options_json);
+            ids.push(Number(info.lastInsertRowid));
+          }
+
+          // คิดยอดใหม่ทั้งใบ (รวมทุกรอบ) — ส่วนลด/แต้มเดิมของใบยังอยู่
+          const sub = db
+            .prepare("SELECT COALESCE(SUM(price * qty), 0) AS s FROM order_items WHERE order_id = ?")
+            .get(openOrder.id).s;
+          const disc = computeDiscount(sub, openOrder.discount_type, Number(openOrder.discount_value) || 0);
+          const afterDiscount = Math.max(0, sub - disc);
+
+          // ใช้แต้มเพิ่มในรอบนี้ (ถ้ามี) — clamp กับยอดที่ยังไม่ถูกแต้มเดิมหักไป
+          let redeemed = openOrder.points_redeemed || 0;
+          const addRedeem = Math.min(requestedRedeem, Math.max(0, afterDiscount - redeemed));
+          if (addRedeem > 0) {
+            const upd = db
+              .prepare("UPDATE members SET points = points - ? WHERE id = ? AND points >= ?")
+              .run(addRedeem, memberId, addRedeem);
+            if (upd.changes !== 1) {
+              const err = new Error("แต้มของสมาชิกไม่พอ");
+              err.statusCode = 400;
+              throw err;
+            }
+            redeemed += addRedeem;
+            const bal = db.prepare("SELECT points FROM members WHERE id = ?").get(memberId).points;
+            db.prepare(
+              "INSERT INTO loyalty_transactions (member_id, order_id, points_delta, balance_after, reason) VALUES (?, ?, ?, ?, ?)"
+            ).run(memberId, openOrder.id, -addRedeem, bal, "redeem:order");
+          }
+
+          const newTotal = Math.max(0, afterDiscount - redeemed);
+          db.prepare(
+            "UPDATE orders SET subtotal = ?, discount = ?, total = ?, points_redeemed = ?, status = 'รอรับ', member_id = COALESCE(member_id, ?) WHERE id = ?"
+          ).run(sub, disc, newTotal, redeemed, memberId, openOrder.id);
+          if (note) {
+            db.prepare(
+              "UPDATE orders SET note = CASE WHEN note IS NULL OR note = '' THEN ? ELSE note || ' | ' || ? END WHERE id = ?"
+            ).run(note, note, openOrder.id);
+          }
+
+          db.prepare("UPDATE tables SET status = 'มีลูกค้า' WHERE id = ?").run(tableId);
+          return ids;
+        })();
+
+        const updated = loadOrder(openOrder.id);
+        res.json(updated);
+
+        // ปริ้นครัว/บาร์เฉพาะรายการรอบใหม่ (รอบเก่าปริ้นไปแล้ว)
+        if (req.body?._client_print !== 1) {
+          const roundItems = updated.items.filter((it) => newItemIds.includes(it.id));
+          printOrderTickets({ ...updated, items: roundItems })
+            .then((r) => {
+              if (r?.error) console.warn("[printOrderTickets]", r.error);
+              else if (r?.results) {
+                const errs = r.results.filter((x) => x.error);
+                if (errs.length) console.warn("[printOrderTickets] partial:", errs);
+              }
+            })
+            .catch((e) => console.warn("[printOrderTickets] crash:", e.message));
+        }
+        return;
+      } catch (e) {
+        return res.status(e.statusCode || 500).json({ error: e.message || "ไม่สามารถสั่งเพิ่มได้" });
+      }
+    }
+  }
+
   // Admin POS still requires an open shift; customer QR orders are accepted any time
   const currentShift = db
     .prepare("SELECT id FROM shifts WHERE status = 'open' ORDER BY id DESC LIMIT 1")
