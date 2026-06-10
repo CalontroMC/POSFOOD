@@ -13,6 +13,7 @@ import PointsRewards from "./pages/PointsRewards.jsx";
 import PaymentQR from "./pages/PaymentQR.jsx";
 import BillRequest from "./pages/BillRequest.jsx";
 import Settings from "./pages/Settings.jsx";
+import LoyverseMenuSync from "./pages/LoyverseMenuSync.jsx";
 import CustomerOrder from "./pages/CustomerOrder.jsx";
 import PrintQR from "./pages/PrintQR.jsx";
 import ShiftPage from "./pages/ShiftPage.jsx";
@@ -54,6 +55,7 @@ function AdminRoutes() {
         <Route path="/payment-qr" element={<PaymentQR />} />
         <Route path="/bill-history" element={<BillRequest />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/loyverse-sync" element={<LoyverseMenuSync />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

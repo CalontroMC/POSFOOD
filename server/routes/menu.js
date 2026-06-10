@@ -64,7 +64,8 @@ r.get("/items", (req, res) => {
   const rows = db
     .prepare(
       `SELECT m.id, m.name, m.description, m.price, m.points, m.image_url,
-              m.available, m.kitchen, m.category_id, c.name AS category_name
+              m.available, m.kitchen, m.category_id, m.loyverse_variant_id,
+              c.name AS category_name
        FROM menu_items m
        LEFT JOIN categories c ON c.id = m.category_id
        ORDER BY c.sort_order, m.id`

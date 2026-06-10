@@ -61,6 +61,7 @@ export const SECTIONS = {
   ],
   settings: [
     { to: "/settings", label: "ตั้งค่าร้าน" },
+    { to: "/loyverse-sync", label: "Sync เมนู" },
     { to: "/payment-qr", label: "QR ชำระเงิน" },
   ],
 };
