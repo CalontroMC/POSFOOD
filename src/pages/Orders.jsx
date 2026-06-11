@@ -100,6 +100,9 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
     type: detail.discount_type || "percent",
     value: detail.discount_value || "",
   });
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [payMethod, setPayMethod] = useState(detail.payment_method || "cash");
+  const [closingBill, setClosingBill] = useState(false);
 
   const isHeld = detail.status === "พักบิล";
   const canEdit = !["เสร็จสิ้น", "ยกเลิก"].includes(detail.status);
@@ -175,6 +178,21 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
     setSplitItems({});
     await onChanged();
     alert(`แยกบิลสำเร็จ — ออเดอร์ใหม่ ${newOrder.order_number}`);
+  };
+
+  const closeBill = async () => {
+    setClosingBill(true);
+    try {
+      await apiPatch(`/orders/${detail.id}/status`, {
+        status: "เสร็จสิ้น",
+        payment_method: payMethod,
+      });
+      await onChanged();
+      onClose();
+    } catch (e) {
+      alert(e.message || "เช็คบิลไม่สำเร็จ");
+      setClosingBill(false);
+    }
   };
 
   return (
@@ -401,6 +419,52 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
                     ))}
                   </ul>
                 )}
+              </div>
+            )}
+
+            {/* เช็คบิล → ปิดบิล (status เสร็จสิ้น) → ยิงใบเสร็จเข้า Loyverse */}
+            {!checkingOut ? (
+              <button
+                onClick={() => setCheckingOut(true)}
+                className="mt-2 w-full rounded-xl bg-green-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-green-700"
+              >
+                <CheckCheck size={16} className="-mt-0.5 mr-1 inline" /> เช็คบิล · ฿{detail.total}
+              </button>
+            ) : (
+              <div className="mt-2 rounded-xl border border-green-200 bg-green-50/70 p-3">
+                <p className="mb-2 text-xs font-medium text-gray-600">เลือกวิธีรับเงิน</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: "cash", label: "เงินสด" },
+                    { id: "qr", label: "QR" },
+                    { id: "card", label: "บัตร" },
+                  ].map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setPayMethod(p.id)}
+                      className={`rounded-lg border px-2 py-2 text-xs font-medium ${
+                        payMethod === p.id
+                          ? "border-green-600 bg-green-600 text-white"
+                          : "border-gray-200 bg-white text-gray-600"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={closeBill}
+                  disabled={closingBill}
+                  className="mt-3 w-full rounded-xl bg-green-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
+                >
+                  {closingBill ? "กำลังเช็คบิล..." : `ยืนยันเช็คบิล ฿${detail.total}`}
+                </button>
+                <button
+                  onClick={() => setCheckingOut(false)}
+                  className="mt-1.5 w-full text-xs text-gray-400 hover:text-gray-600"
+                >
+                  ยกเลิก
+                </button>
               </div>
             )}
           </div>
