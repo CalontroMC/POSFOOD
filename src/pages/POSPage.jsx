@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Search, ShoppingCart, Plus, Minus, Trash2, UtensilsCrossed, Lock, PauseCircle, Tag, Armchair, ShoppingBag, X, Gift } from "lucide-react";
-import { apiGet, apiPost, cachedGet } from "../lib/api.js";
+import { Search, ShoppingCart, Plus, Minus, Trash2, UtensilsCrossed, Lock, PauseCircle, Tag, Armchair, ShoppingBag, X, Gift, CheckCheck } from "lucide-react";
+import { apiGet, apiPost, apiPatch, cachedGet } from "../lib/api.js";
 import MenuOptionPicker from "../components/MenuOptionPicker.jsx";
 import DiscountControl from "../components/DiscountControl.jsx";
 import { printOrderTickets, autoPrintEnabled } from "../lib/printJob.js";
@@ -135,14 +135,11 @@ export default function POSPage() {
     setPointsToRedeem("");
   };
 
-  const submit = async (hold = false) => {
+  const submit = async (hold = false, checkoutNow = false) => {
     if (cart.length === 0) return;
     setBusy(true);
     try {
       const order = await apiPost("/orders", buildBody(hold), { auth: false });
-      setToast(hold
-        ? `พักบิล ${order.order_number} แล้ว`
-        : `สำเร็จ! ออเดอร์ ${order.order_number}`);
       // Auto-print kitchen + bar tickets (only for confirmed orders, not held bills)
       if (!hold) {
         try {
@@ -156,6 +153,18 @@ export default function POSPage() {
               .catch(() => {});
           }
         } catch {}
+      }
+      // เช็คบิลเลย → ปิดบิลทันที (status เสร็จสิ้น) → ยิงใบเสร็จเข้า Loyverse
+      if (!hold && checkoutNow) {
+        await apiPatch(`/orders/${order.id}/status`, {
+          status: "เสร็จสิ้น",
+          payment_method: payment,
+        });
+        setToast(`เช็คบิล ${order.order_number} แล้ว · ฿${total}`);
+      } else {
+        setToast(hold
+          ? `พักบิล ${order.order_number} แล้ว`
+          : `เปิดตั๋ว ${order.order_number} แล้ว`);
       }
       reset();
       setTimeout(() => setToast(""), 3000);
@@ -505,13 +514,22 @@ export default function POSPage() {
               <PauseCircle size={14} /> พัก
             </button>
             <button
-              onClick={() => submit(false)}
+              onClick={() => submit(false, false)}
               disabled={cart.length === 0 || busy || !shiftIsOpen}
               className="btn-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
+              title="เปิดตั๋วไว้ก่อน เช็คบิลทีหลัง (นั่งกินที่ร้าน)"
             >
               {!shiftIsOpen ? (
                 <><Lock size={14} /> เปิดกะก่อน</>
-              ) : busy ? "กำลังบันทึก..." : "ยืนยันออเดอร์"}
+              ) : busy ? "กำลังบันทึก..." : "เปิดตั๋ว"}
+            </button>
+            <button
+              onClick={() => submit(false, true)}
+              disabled={cart.length === 0 || busy || !shiftIsOpen}
+              className="flex-1 rounded-xl bg-green-600 px-3 py-2 text-sm font-bold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+              title="เช็คบิลเลย — ปิดบิล + ยิงใบเสร็จเข้า Loyverse ทันที"
+            >
+              <CheckCheck size={14} className="-mt-0.5 mr-1 inline" />เช็คบิล
             </button>
           </div>
         </div>
