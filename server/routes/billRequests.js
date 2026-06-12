@@ -1,6 +1,8 @@
 import { Router } from "express";
 import db from "../db.js";
 import { adminRequired } from "../middleware/auth.js";
+import { rotateTableToken } from "../lib/tableToken.js";
+import { printCheckBillForTable } from "../lib/checkBill.js";
 
 const r = Router();
 
@@ -38,6 +40,16 @@ r.post("/", (req, res) => {
     .run(table.id, table.table_number, table_token, note || null);
 
   res.json({ ok: true, id: info.lastInsertRowid, status: "รอ" });
+
+  // Auto-print the check bill to the configured printer (fire-and-forget so a
+  // printer outage never blocks the customer's request). Only on a NEW request
+  // — the anti-spam branch above returns before reaching here on repeat taps.
+  printCheckBillForTable(table.id)
+    .then((r) => {
+      if (r?.error) console.warn("[checkBill]", r.error);
+      else if (r?.skipped) console.log("[checkBill] skipped:", r.skipped);
+    })
+    .catch((e) => console.warn("[checkBill] crash:", e.message));
 });
 
 r.get("/", adminRequired, (req, res) => {
@@ -97,6 +109,8 @@ r.patch("/:id/status", adminRequired, (req, res) => {
       .get(id);
     if (br?.table_id) {
       db.prepare("UPDATE tables SET status = 'ว่าง' WHERE id = ?").run(br.table_id);
+      // Bill settled → issue a fresh QR so the old one can no longer be used.
+      rotateTableToken(db, br.table_id);
     }
   }
 

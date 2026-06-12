@@ -231,16 +231,16 @@ export async function printOrderTickets(order, items, { menuItems, settings } = 
 
   const results = [];
   if (food.length > 0) {
-    const bytes = buildOrderTicket({ title: "ใบสั่งครัว", order, items: food, width });
-    const html = htmlOrderTicket({ title: "ใบสั่งครัว", order, items: food });
+    const bytes = buildOrderTicket({ title: "ครัว (KITCHEN)", order, items: food, width });
+    const html = htmlOrderTicket({ title: "ครัว (KITCHEN)", order, items: food });
     results.push({
       station: "kitchen",
       ...(await dispatch({ escposBytes: bytes, htmlFallback: html, settings, jobLabel: "Kitchen" })),
     });
   }
   if (drinks.length > 0) {
-    const bytes = buildOrderTicket({ title: "ใบสั่งบาร์", order, items: drinks, width });
-    const html = htmlOrderTicket({ title: "ใบสั่งบาร์", order, items: drinks });
+    const bytes = buildOrderTicket({ title: "บาร์ (BAR)", order, items: drinks, width });
+    const html = htmlOrderTicket({ title: "บาร์ (BAR)", order, items: drinks });
     results.push({
       station: "bar",
       ...(await dispatch({ escposBytes: bytes, htmlFallback: html, settings, jobLabel: "Bar" })),
@@ -261,7 +261,12 @@ export async function printFinalReceipt(order, items, { settings, paid, change }
     storeName: settings.store_name || "FoodPOS",
     storePhone: settings.store_phone,
     storeAddress: settings.store_address,
+    storeTaxId: settings.store_tax_id,
     footer: settings.receipt_footer,
+    serviceChargeRate: Number(settings.service_charge_rate) || 0,
+    vatRate: Number(settings.vat_rate) || 0,
+    vatInclusive: settings.vat_inclusive === "1",
+    promptPayId: settings.promptpay_id || "",
     paid,
     change,
     width: Number(settings.printer_width) || 48,

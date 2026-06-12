@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Store, Key, Save, LogOut, Volume2, VolumeX, AlertTriangle, Trash2, Play, Printer, Search, CheckCircle2, Wifi, Smartphone } from "lucide-react";
+import { Store, Key, Save, LogOut, Volume2, VolumeX, AlertTriangle, Trash2, Play, Printer, Search, CheckCircle2, Wifi, Smartphone, Percent } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
 import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import Toggle from "../components/Toggle.jsx";
@@ -23,6 +23,11 @@ export default function Settings() {
     store_tax_id: "",
     store_address: "",
     receipt_footer: "",
+    // Check-bill tax / service charge / PromptPay
+    service_charge_rate: "0",
+    vat_rate: "0",
+    vat_inclusive: "0",
+    promptpay_id: "",
     printer_ip: "",
     printer_port: "9100",
     printer_name: "",
@@ -132,6 +137,56 @@ export default function Settings() {
                 />
               </Field>
             </div>
+          </div>
+        </section>
+
+        <section className="card p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-100 text-brand-orange">
+              <Percent size={18} />
+            </div>
+            <h2 className="text-base font-bold text-gray-900">ภาษี / ค่าบริการ / QR จ่ายเงิน (ใบเช็คบิล)</h2>
+          </div>
+          <p className="mb-4 text-sm text-gray-500">
+            ใส่ 0 = ปิด/ไม่คิด · ค่าเหล่านี้แสดงและคำนวณบนใบเช็คบิลเท่านั้น (ไม่กระทบยอดที่บันทึกในรายงาน)
+          </p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Service Charge (%)">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.5"
+                className="input"
+                value={form.service_charge_rate ?? "0"}
+                onChange={update("service_charge_rate")}
+              />
+            </Field>
+            <Field label="VAT (%)">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.5"
+                className="input"
+                value={form.vat_rate ?? "0"}
+                onChange={update("vat_rate")}
+              />
+            </Field>
+            <Field label="รูปแบบ VAT">
+              <select className="input" value={form.vat_inclusive || "0"} onChange={update("vat_inclusive")}>
+                <option value="0">บวกเพิ่มจากราคา (Exclusive)</option>
+                <option value="1">รวมในราคาแล้ว (Inclusive)</option>
+              </select>
+            </Field>
+            <Field label="PromptPay (เบอร์มือถือ / เลขบัตร ปชช. / e-Wallet)">
+              <input
+                className="input"
+                placeholder="เช่น 0812345678"
+                value={form.promptpay_id || ""}
+                onChange={update("promptpay_id")}
+              />
+            </Field>
           </div>
         </section>
 

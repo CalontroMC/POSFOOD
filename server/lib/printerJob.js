@@ -130,6 +130,50 @@ $bytes = [Convert]::FromBase64String('${b64}')
 }
 
 /**
+ * Send raw ESC/POS bytes to the printer configured in Settings.
+ * Used for one-off jobs (e.g. table QR cards) triggered from the admin UI.
+ * Throws (with .statusCode) on misconfiguration so the route can surface it.
+ *
+ * @param {Uint8Array|Buffer} bytes
+ */
+export async function printRawToConfigured(bytes) {
+  const settings = loadSettings();
+  if (settings.printer_enabled !== "1") {
+    const e = new Error("เครื่องพิมพ์ถูกปิดอยู่ใน Settings");
+    e.statusCode = 400;
+    throw e;
+  }
+  const type = settings.printer_type || "network";
+  const buf = Buffer.from(bytes);
+
+  if (type === "network") {
+    if (!settings.printer_ip) {
+      const e = new Error("ยังไม่ได้ตั้งค่า IP เครื่องพิมพ์ใน Settings");
+      e.statusCode = 400;
+      throw e;
+    }
+    await sendNetworkRaw(settings.printer_ip, Number(settings.printer_port) || 9100, buf);
+    return { ok: true, transport: "network", ip: settings.printer_ip };
+  }
+  if (type === "local") {
+    if (!settings.printer_name) {
+      const e = new Error("ยังไม่ได้ตั้งค่าชื่อเครื่องพิมพ์ใน Settings");
+      e.statusCode = 400;
+      throw e;
+    }
+    await sendLocalRaw(settings.printer_name, buf);
+    return { ok: true, transport: "local", name: settings.printer_name };
+  }
+  // rawbt / browser modes can only be dispatched client-side
+  const e = new Error(
+    `โหมดเครื่องพิมพ์ '${type}' ต้องสั่งพิมพ์จากอุปกรณ์ที่ต่อเครื่องพิมพ์ (rawbt/browser)`
+  );
+  e.statusCode = 400;
+  e.clientOnly = true;
+  throw e;
+}
+
+/**
  * Print kitchen + bar tickets for an order that already exists in DB.
  * Fire-and-forget from the caller — never throws (logs warning on failure).
  *
@@ -148,8 +192,8 @@ export async function printOrderTickets(order) {
     const { food, drinks } = splitItems(order.items, kitchenMap);
 
     const stations = [];
-    if (food.length > 0) stations.push({ name: "kitchen", title: "ใบสั่งครัว", items: food });
-    if (drinks.length > 0) stations.push({ name: "bar", title: "ใบสั่งบาร์", items: drinks });
+    if (food.length > 0) stations.push({ name: "kitchen", title: "ครัว (KITCHEN)", items: food });
+    if (drinks.length > 0) stations.push({ name: "bar", title: "บาร์ (BAR)", items: drinks });
     if (stations.length === 0) return { skipped: "no printable items" };
 
     const results = [];

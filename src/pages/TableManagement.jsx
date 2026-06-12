@@ -224,9 +224,23 @@ function Modal({ title, onClose, children }) {
 
 function QRModal({ table, onClose, onRotate }) {
   const [url, setUrl] = useState("");
+  const [printing, setPrinting] = useState(false);
   useEffect(() => {
     apiGet(`/tables/${table.id}/qr-info`, { auth: false }).then((d) => setUrl(d.url));
   }, [table.id]);
+
+  const printQR = async () => {
+    setPrinting(true);
+    try {
+      await apiPost(`/tables/${table.id}/print-qr`);
+      alert(`ส่งพิมพ์ QR โต๊ะ ${table.table_number} ไปที่เครื่องพิมพ์แล้ว ✓`);
+    } catch (e) {
+      alert("พิมพ์ไม่สำเร็จ: " + (e.message || "เกิดข้อผิดพลาด"));
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   return (
     <Modal title={`QR · โต๊ะ ${table.table_number}`} onClose={onClose}>
       <div className="space-y-3 text-center">
@@ -240,6 +254,10 @@ function QRModal({ table, onClose, onRotate }) {
             {url}
           </p>
         )}
+        <button onClick={printQR} disabled={printing} className="btn-primary w-full disabled:opacity-60">
+          <Printer size={16} />
+          {printing ? "กำลังส่งพิมพ์..." : "พิมพ์ QR ที่เครื่องพิมพ์"}
+        </button>
         <div className="flex gap-2">
           <a
             href={`/api/tables/${table.id}/qr.png`}

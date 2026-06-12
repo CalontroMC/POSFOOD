@@ -353,6 +353,11 @@ export function seedIfEmpty() {
     ins.run("store_address", "");
     ins.run("store_tax_id", "");
     ins.run("receipt_footer", "ขอบคุณที่ใช้บริการครับ");
+    // Tax / service charge on the check bill (display + grand-total calc)
+    ins.run("service_charge_rate", "0"); // percent, "0" = off
+    ins.run("vat_rate", "0"); // percent, "0" = off
+    ins.run("vat_inclusive", "0"); // "1" = VAT already included in prices
+    ins.run("promptpay_id", ""); // PromptPay: mobile / national ID / e-wallet
   } else {
     // existing DB: mark setup as done so user isn't forced through first-run again
     db.prepare(
@@ -361,6 +366,12 @@ export function seedIfEmpty() {
     db.prepare(
       "INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_name', '')"
     ).run();
+    // Backfill new check-bill settings for existing installs
+    const backfill = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
+    backfill.run("service_charge_rate", "0");
+    backfill.run("vat_rate", "0");
+    backfill.run("vat_inclusive", "0");
+    backfill.run("promptpay_id", "");
   }
 }
 

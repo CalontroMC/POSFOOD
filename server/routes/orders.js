@@ -2,6 +2,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { adminRequired, isValidToken } from "../middleware/auth.js";
 import { printOrderTickets } from "../lib/printerJob.js";
+import { rotateTableToken } from "../lib/tableToken.js";
 import { syncOrderToLoyverse } from "../lib/loyverseSync.js";
 
 function isAdminRequest(req) {
@@ -26,10 +27,12 @@ function nextOrderNumber() {
 function loadOrder(id) {
   const order = db
     .prepare(
-      `SELECT o.*, t.table_number, m.name AS member_name, m.phone AS member_phone
+      `SELECT o.*, t.table_number, m.name AS member_name, m.phone AS member_phone,
+              sh.opened_by_name AS staff_name
        FROM orders o
        LEFT JOIN tables t ON t.id = o.table_id
        LEFT JOIN members m ON m.id = o.member_id
+       LEFT JOIN shifts sh ON sh.id = o.shift_id
        WHERE o.id = ?`
     )
     .get(id);
@@ -626,6 +629,9 @@ r.patch("/:id/status", adminRequired, (req, res) => {
       const o = db.prepare("SELECT table_id, member_id, total FROM orders WHERE id = ?").get(id);
       if (o?.table_id) {
         db.prepare("UPDATE tables SET status = 'ว่าง' WHERE id = ?").run(o.table_id);
+        // Bill settled → issue a fresh QR so the old one (which the previous
+        // customer may have kept) can no longer be used to order.
+        rotateTableToken(db, o.table_id);
       }
       if (o?.member_id) {
         const pts = db

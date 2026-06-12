@@ -1,13 +1,16 @@
 import { Router } from "express";
-import crypto from "node:crypto";
 import QRCode from "qrcode";
 import db from "../db.js";
 import { adminRequired } from "../middleware/auth.js";
+import { newTableToken, rotateTableToken } from "../lib/tableToken.js";
+import { printRawToConfigured } from "../lib/printerJob.js";
+import { buildTableQR } from "../../src/lib/escpos.js";
 
 const r = Router();
 
-function newToken() {
-  return crypto.randomBytes(12).toString("hex");
+function loadSettingsObj() {
+  const rows = db.prepare("SELECT key, value FROM settings").all();
+  return Object.fromEntries(rows.map((row) => [row.key, row.value]));
 }
 
 function publicUrl(req, token) {
@@ -33,7 +36,7 @@ r.post("/", adminRequired, (req, res) => {
       .prepare(
         "INSERT INTO tables (table_number, seats, zone, qr_token) VALUES (?, ?, ?, ?)"
       )
-      .run(table_number, Number(seats) || 2, zone || "ในร้าน", newToken());
+      .run(table_number, Number(seats) || 2, zone || "ในร้าน", newTableToken());
     res.json({ id: info.lastInsertRowid });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -64,9 +67,9 @@ r.delete("/:id", adminRequired, (req, res) => {
 
 r.post("/:id/rotate-token", adminRequired, (req, res) => {
   const id = Number(req.params.id);
-  const token = newToken();
-  db.prepare("UPDATE tables SET qr_token = ? WHERE id = ?").run(token, id);
-  res.json({ qr_token: token });
+  rotateTableToken(db, id);
+  const row = db.prepare("SELECT qr_token FROM tables WHERE id = ?").get(id);
+  res.json({ qr_token: row?.qr_token });
 });
 
 r.get("/by-token/:token", (req, res) => {
@@ -108,6 +111,34 @@ r.get("/:id/qr-info", (req, res) => {
     .get(id);
   if (!row) return res.status(404).end();
   res.json({ ...row, url: publicUrl(req, row.qr_token) });
+});
+
+// Print the "scan to order" QR card for a table to the configured thermal printer.
+r.post("/:id/print-qr", adminRequired, async (req, res) => {
+  const id = Number(req.params.id);
+  const row = db
+    .prepare("SELECT id, table_number, qr_token FROM tables WHERE id = ?")
+    .get(id);
+  if (!row) return res.status(404).json({ error: "table not found" });
+
+  const s = loadSettingsObj();
+  const wifiOn = s.wifi_enabled === "1";
+  const bytes = buildTableQR({
+    tableNumber: row.table_number,
+    url: publicUrl(req, row.qr_token),
+    storeName: s.store_name || "FoodPOS",
+    wifiSsid: wifiOn ? s.wifi_ssid || "" : "",
+    wifiPassword: wifiOn ? s.wifi_password || "" : "",
+    footer: s.receipt_footer || "ขอให้อร่อยกับมื้อนี้นะครับ :)",
+    width: Number(s.printer_width) || 48,
+  });
+
+  try {
+    const result = await printRawToConfigured(bytes);
+    res.json({ ok: true, table: row.table_number, ...result });
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ error: e.message || "พิมพ์ไม่สำเร็จ" });
+  }
 });
 
 export default r;
