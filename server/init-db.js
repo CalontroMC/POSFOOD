@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import db from "./db.js";
+import { hashPin } from "./lib/hash.js";
 
 function randomToken(len = 16) {
   return crypto.randomBytes(len).toString("hex");
@@ -378,6 +379,18 @@ export function seedIfEmpty() {
 export function ensureDb() {
   initSchema();
   seedIfEmpty();
+
+  // Migrate admin_pin to hashed format if it is currently plaintext (4 digits)
+  try {
+    const pinRow = db.prepare("SELECT value FROM settings WHERE key = 'admin_pin'").get();
+    if (pinRow && /^\d{4}$/.test(pinRow.value)) {
+      const hashed = hashPin(pinRow.value);
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'admin_pin'").run(hashed);
+      console.log("Migrated admin_pin to scrypt hashed format.");
+    }
+  } catch (e) {
+    console.warn("Failed to migrate admin_pin:", e.message);
+  }
 }
 
 const isMain =

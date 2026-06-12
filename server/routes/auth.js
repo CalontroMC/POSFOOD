@@ -1,6 +1,31 @@
 import { Router } from "express";
 import db from "../db.js";
 import { issueToken, revokeToken, isValidToken, revokeAllSessions } from "../middleware/auth.js";
+import { hashPin, verifyPin } from "../lib/hash.js";
+
+const loginAttempts = new Map();
+function loginRateLimiter(req, res, next) {
+  const ip = req.ip || req.socket.remoteAddress;
+  const now = Date.now();
+  const limitWindow = 15 * 60 * 1000; // 15 minutes
+  const maxAttempts = 5;
+
+  if (!loginAttempts.has(ip)) {
+    loginAttempts.set(ip, []);
+  }
+
+  const attempts = loginAttempts.get(ip).filter((timestamp) => now - timestamp < limitWindow);
+  attempts.push(now);
+  loginAttempts.set(ip, attempts);
+
+  if (attempts.length > maxAttempts) {
+    return res.status(429).json({
+      error: "คุณล็อกอินผิดพลาดบ่อยเกินไป กรุณาลองใหม่ในอีก 15 นาที",
+      code: "too_many_attempts"
+    });
+  }
+  next();
+}
 
 const r = Router();
 
@@ -32,7 +57,7 @@ r.post("/setup", (req, res) => {
 
   setSetting("store_name", store_name.trim());
   setSetting("admin_name", admin_name.trim());
-  setSetting("admin_pin", String(pin));
+  setSetting("admin_pin", hashPin(pin));
   setSetting("first_run_done", "1");
 
   // Issue an immediate login token so the user goes straight in
@@ -40,16 +65,20 @@ r.post("/setup", (req, res) => {
   res.json({ ok: true, token });
 });
 
-r.post("/login", (req, res) => {
+r.post("/login", loginRateLimiter, (req, res) => {
   const { pin } = req.body || {};
   if (!pin) return res.status(400).json({ error: "pin required" });
   if (getSetting("first_run_done") !== "1") {
     return res.status(409).json({ error: "ยังไม่ตั้งค่าเริ่มต้น", code: "setup_required" });
   }
   const stored = getSetting("admin_pin");
-  if (!stored || String(pin) !== String(stored)) {
+  if (!stored || !verifyPin(pin, stored)) {
     return res.status(401).json({ error: "PIN ไม่ถูกต้อง" });
   }
+
+  // Clear attempts on success
+  const ip = req.ip || req.socket.remoteAddress;
+  loginAttempts.delete(ip);
   const token = issueToken();
   res.json({ token });
 });

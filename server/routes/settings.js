@@ -1,6 +1,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { adminRequired } from "../middleware/auth.js";
+import { hashPin } from "../lib/hash.js";
 
 const r = Router();
 
@@ -32,7 +33,7 @@ r.put("/pin", adminRequired, (req, res) => {
     return res.status(400).json({ error: "pin must be 4 digits" });
   db.prepare(
     "INSERT INTO settings (key, value) VALUES ('admin_pin', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-  ).run(String(pin));
+  ).run(hashPin(pin));
   res.json({ ok: true });
 });
 

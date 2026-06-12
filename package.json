@@ -11,7 +11,7 @@
     "build": "vite build",
     "start": "node server/index.js",
     "init-db": "node server/init-db.js",
-    "test": "node --test server/lib/loyverse.test.js server/lib/loyverseSync.test.js",
+    "test": "node --test server/lib/loyverse.test.js server/lib/loyverseSync.test.js server/lib/hash.test.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "android:sync": "vite build && cap sync android",
