@@ -1,10 +1,29 @@
 import { Router } from "express";
+import fs from "node:fs";
+import path from "node:path";
 import db from "../db.js";
 import { adminRequired } from "../middleware/auth.js";
 import menuOptionsRouter, { loadOptionsForItem } from "./menuOptions.js";
 import recipesRouter, { loadRecipeForItem } from "./recipes.js";
+import { UPLOAD_DIR } from "./uploads.js";
 
 const r = Router();
+
+function deleteLocalImage(imageUrl) {
+  if (imageUrl && imageUrl.startsWith("/uploads/")) {
+    const filename = imageUrl.substring(9); // remove "/uploads/"
+    const filePath = path.join(UPLOAD_DIR, filename);
+    fs.unlink(filePath, (err) => {
+      if (err) {
+        if (err.code !== "ENOENT") {
+          console.warn(`[uploads] Failed to delete file ${filePath}:`, err.message);
+        }
+      } else {
+        console.log(`[uploads] Cleaned up orphaned file: ${filename}`);
+      }
+    });
+  }
+}
 
 r.get("/categories", (req, res) => {
   const rows = db
@@ -132,6 +151,13 @@ r.patch("/items/:id", adminRequired, (req, res) => {
     "kitchen",
     "loyverse_variant_id",
   ];
+
+  let oldImageUrl = null;
+  if (req.body && "image_url" in req.body) {
+    const item = db.prepare("SELECT image_url FROM menu_items WHERE id = ?").get(id);
+    oldImageUrl = item?.image_url;
+  }
+
   const sets = [];
   const vals = [];
   for (const f of fields) {
@@ -142,12 +168,23 @@ r.patch("/items/:id", adminRequired, (req, res) => {
   }
   if (sets.length === 0) return res.json({ ok: true });
   vals.push(id);
+  
   db.prepare(`UPDATE menu_items SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+
+  if (oldImageUrl && req.body.image_url !== oldImageUrl) {
+    deleteLocalImage(oldImageUrl);
+  }
+
   res.json({ ok: true });
 });
 
 r.delete("/items/:id", adminRequired, (req, res) => {
-  db.prepare("DELETE FROM menu_items WHERE id = ?").run(Number(req.params.id));
+  const id = Number(req.params.id);
+  const item = db.prepare("SELECT image_url FROM menu_items WHERE id = ?").get(id);
+  db.prepare("DELETE FROM menu_items WHERE id = ?").run(id);
+  if (item?.image_url) {
+    deleteLocalImage(item.image_url);
+  }
   res.json({ ok: true });
 });
 

@@ -391,6 +391,16 @@ export function ensureDb() {
   } catch (e) {
     console.warn("Failed to migrate admin_pin:", e.message);
   }
+
+  // Clean up expired admin sessions (older than 30 days)
+  try {
+    const info = db.prepare("DELETE FROM admin_sessions WHERE last_used_at < datetime('now', '-30 days')").run();
+    if (info.changes > 0) {
+      console.log(`Cleaned up ${info.changes} expired admin sessions.`);
+    }
+  } catch (e) {
+    console.warn("Failed to clean up expired admin sessions:", e.message);
+  }
 }
 
 const isMain =
