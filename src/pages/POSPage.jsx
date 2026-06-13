@@ -3,7 +3,9 @@ import { useOutletContext } from "react-router-dom";
 import { Search, ShoppingCart, Plus, Minus, Trash2, UtensilsCrossed, Lock, PauseCircle, Tag, Armchair, ShoppingBag, X, Gift, CheckCheck } from "lucide-react";
 import { apiGet, apiPost, apiPatch, cachedGet } from "../lib/api.js";
 import MenuOptionPicker from "../components/MenuOptionPicker.jsx";
+import PromptPayQR from "../components/PromptPayQR.jsx";
 import DiscountControl from "../components/DiscountControl.jsx";
+import OnboardingWizard from "../components/OnboardingWizard.jsx";
 import { printOrderTickets, autoPrintEnabled } from "../lib/printJob.js";
 
 export default function POSPage() {
@@ -12,6 +14,7 @@ export default function POSPage() {
   const [items, setItems] = useState([]);
   const [tables, setTables] = useState([]);
   const [members, setMembers] = useState([]);
+  const [rewards, setRewards] = useState([]);
   const [activeCat, setActiveCat] = useState(null);
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState([]);
@@ -26,19 +29,28 @@ export default function POSPage() {
   const [holdLabel, setHoldLabel] = useState("");
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [pointsToRedeem, setPointsToRedeem] = useState(""); // 1 pt = 1 baht discount
+  const [selectedRewardId, setSelectedRewardId] = useState("");
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [cashReceived, setCashReceived] = useState("");
+
+  const [settings, setSettings] = useState({});
 
   const reload = async () => {
     // v5 offline-first: cachedGet falls back to localStorage when offline
-    const [c, mi, t, m] = await Promise.all([
+    const [c, mi, t, m, r, s] = await Promise.all([
       cachedGet("/menu/categories", { auth: false }),
       cachedGet("/menu/items?with=options", { auth: false }),
       cachedGet("/tables", { auth: false }),
       apiGet("/members"),   // auth-required, dynamic → don't cache
+      apiGet("/rewards/active").catch(() => []), // auth-required, active rewards
+      cachedGet("/settings", { auth: false })
     ]);
     setCats(c);
     setItems(mi.filter((x) => x.available));
     setTables(t);
     setMembers(m);
+    setRewards(r);
+    setSettings(s || {});
   };
 
   useEffect(() => {
@@ -92,7 +104,36 @@ export default function POSPage() {
   const afterDiscount = Math.max(0, subtotal - discountAmount);
   const maxRedeem = Math.min(selectedMember?.points || 0, afterDiscount);
   const redeemValue = Math.max(0, Math.min(maxRedeem, Math.floor(Number(pointsToRedeem) || 0)));
-  const total = Math.max(0, afterDiscount - redeemValue);
+  const net = Math.max(0, afterDiscount - redeemValue);
+  
+  const scRate = Number(settings?.service_charge_rate) || 0;
+  const vRate = Number(settings?.vat_rate) || 0;
+  const vatInclusive = settings?.vat_inclusive === "1";
+  const roundingRule = settings?.rounding_rule || "none";
+
+  let scAmt = 0;
+  if (scRate > 0) {
+    scAmt = Math.round((net * scRate) / 100);
+  }
+  const baseForVat = net + scAmt;
+  let total = baseForVat;
+
+  if (vRate > 0) {
+    if (!vatInclusive) {
+      const vatAmt = Math.round((baseForVat * vRate) / 100);
+      total = baseForVat + vatAmt;
+    }
+  }
+
+  if (roundingRule === "floor") {
+    total = Math.floor(total);
+  } else if (roundingRule === "ceil") {
+    total = Math.ceil(total);
+  } else if (roundingRule === "nearest_25") {
+    total = Math.round(total * 4) / 4;
+  } else {
+    total = Math.round(total);
+  }
 
   const buildBody = (hold = false) => {
     const table = mode === "dine_in" ? tables.find((t) => String(t.id) === String(tableId)) : null;
@@ -117,6 +158,7 @@ export default function POSPage() {
     if (mode === "takeaway" && !body.label) body.label = "ซื้อกลับบ้าน";
     // Don't redeem on hold — points only deduct at the real "ยืนยันออเดอร์"
     if (!hold && redeemValue > 0 && member) body.points_redeemed = redeemValue;
+    if (!hold && selectedRewardId && member) body.reward_id = selectedRewardId;
     // Admin POS handles auto-print on the client (via printJob.js dispatcher,
     // which respects rawbt/browser/network/local modes). Tell server to skip
     // its own server-side TCP print so we don't get duplicate tickets.
@@ -133,7 +175,22 @@ export default function POSPage() {
     setHoldLabel("");
     setMode("dine_in");
     setPointsToRedeem("");
+    setSelectedRewardId("");
+    setCashReceived("");
   };
+
+  useEffect(() => {
+    if (memberId) {
+      const member = members.find((m) => String(m.id) === String(memberId));
+      if (member && member.discount_percent > 0) {
+        setDiscount({ type: "percent", value: String(member.discount_percent) });
+      } else {
+        setDiscount({ type: "percent", value: "" });
+      }
+    } else {
+      setDiscount({ type: "percent", value: "" });
+    }
+  }, [memberId, members]);
 
   const submit = async (hold = false, checkoutNow = false) => {
     if (cart.length === 0) return;
@@ -181,6 +238,7 @@ export default function POSPage() {
 
   return (
     <div className="relative flex h-full">
+      <OnboardingWizard />
       <section className="flex-1 overflow-y-auto px-4 pb-24 pt-4 lg:px-6 lg:pb-6 lg:pt-6">
         <div className="relative mb-4 max-w-2xl">
           <Search
@@ -233,9 +291,16 @@ export default function POSPage() {
                 </div>
               )}
               <div className="p-3">
-                <p className="line-clamp-1 text-sm font-semibold text-gray-900">
-                  {item.name}
-                </p>
+                <div className="mb-1 flex items-start justify-between">
+                  <p className="line-clamp-2 text-sm font-semibold text-gray-900 leading-tight">
+                    {item.name}
+                  </p>
+                  {item.is_out_of_stock && (
+                    <span className="ml-2 shrink-0 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
+                      ของหมด
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-gray-400">{item.category_name}</p>
                 <p className="mt-1.5 text-base font-bold text-brand-orange">
                   ฿{item.price}
@@ -330,35 +395,59 @@ export default function POSPage() {
             ))}
           </select>
           {selectedMember && (
-            <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              <div className="mb-1 flex items-center gap-1 font-semibold">
-                <Gift size={12} /> {selectedMember.name} มี {selectedMember.points.toLocaleString()} แต้ม
+            <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-xs text-amber-800">
+              <div className="mb-2 flex items-center gap-1 font-semibold">
+                <Gift size={12} /> {selectedMember.name} 
+                {selectedMember.dob && new Date(selectedMember.dob).getMonth() === new Date().getMonth() && (
+                  <span title="เดือนเกิด" className="ml-1 text-base leading-none">🎂</span>
+                )}
+                มี {selectedMember.points.toLocaleString()} แต้ม
               </div>
-              {maxRedeem > 0 ? (
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    max={maxRedeem}
-                    value={pointsToRedeem}
-                    onChange={(e) => setPointsToRedeem(e.target.value)}
-                    placeholder={`ใช้แต้ม (สูงสุด ${maxRedeem})`}
-                    className="input h-8 flex-1 text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPointsToRedeem(String(maxRedeem))}
-                    className="rounded-lg bg-amber-500 px-2 py-1 text-xs font-semibold text-white hover:bg-amber-600"
+              <div className="flex flex-col gap-2">
+                {rewards.length > 0 && (
+                  <select
+                    value={selectedRewardId}
+                    onChange={(e) => {
+                      setSelectedRewardId(e.target.value);
+                      if (e.target.value) setPointsToRedeem(""); // Clear manual points if reward selected
+                    }}
+                    className="input h-8 text-xs bg-white"
                   >
-                    Max
-                  </button>
-                </div>
-              ) : (
-                <p className="text-[11px] text-amber-700">
-                  {cart.length === 0 ? "เพิ่มเมนูก่อนเพื่อใช้แต้ม" : "ไม่สามารถใช้แต้มกับยอดนี้ได้"}
-                </p>
-              )}
+                    <option value="">-- ไม่แลกรางวัลพิเศษ --</option>
+                    {rewards.map(r => (
+                      <option key={r.id} value={r.id} disabled={selectedMember.points < r.points_cost}>
+                        ใช้ {r.points_cost} แต้ม: {r.name} {selectedMember.points < r.points_cost && "(แต้มไม่พอ)"}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                
+                {!selectedRewardId && maxRedeem > 0 ? (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={maxRedeem}
+                      value={pointsToRedeem}
+                      onChange={(e) => setPointsToRedeem(e.target.value)}
+                      placeholder={`ใช้เป็นส่วนลด (สูงสุด ${maxRedeem}฿)`}
+                      className="input h-8 flex-1 text-xs bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPointsToRedeem(String(maxRedeem))}
+                      className="rounded-lg bg-amber-500 px-2 py-1 text-xs font-semibold text-white hover:bg-amber-600"
+                    >
+                      Max
+                    </button>
+                  </div>
+                ) : !selectedRewardId && (
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    {cart.length === 0 ? "เพิ่มเมนูก่อนเพื่อใช้แต้ม" : "ไม่สามารถใช้แต้มกับยอดนี้ได้"}
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -524,7 +613,7 @@ export default function POSPage() {
               ) : busy ? "กำลังบันทึก..." : "เปิดตั๋ว"}
             </button>
             <button
-              onClick={() => submit(false, true)}
+              onClick={() => setShowCheckout(true)}
               disabled={cart.length === 0 || busy || !shiftIsOpen}
               className="flex-1 rounded-xl bg-green-600 px-3 py-2 text-sm font-bold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
               title="เช็คบิลเลย — ปิดบิล + ยิงใบเสร็จเข้า Loyverse ทันที"
@@ -557,6 +646,87 @@ export default function POSPage() {
           onClose={() => setPicker(null)}
           onAdd={addEntry}
         />
+      )}
+
+      {showCheckout && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+            <h3 className="mb-4 text-center text-xl font-bold text-gray-900">รับชำระเงิน</h3>
+            <div className="mb-4 text-center">
+              <p className="text-sm text-gray-500">ยอดสุทธิ</p>
+              <p className="text-3xl font-bold text-brand-orange">฿{total}</p>
+            </div>
+            
+            <div className="mb-4 flex flex-wrap gap-2">
+              {[
+                { id: "cash", label: "เงินสด" },
+                { id: "qr", label: "QR" },
+                { id: "card", label: "บัตร" },
+                ...(settings.payment_grab === "1" ? [{ id: "grab", label: "Grab" }] : []),
+                ...(settings.payment_lineman === "1" ? [{ id: "lineman", label: "LINE MAN" }] : []),
+                ...(settings.payment_foodpanda === "1" ? [{ id: "foodpanda", label: "Foodpanda" }] : []),
+                ...(settings.payment_shopee === "1" ? [{ id: "shopee", label: "ShopeeFood" }] : []),
+                ...(settings.payment_transfer === "1" ? [{ id: "transfer", label: "โอนเงิน" }] : []),
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => { setPayment(p.id); setCashReceived(""); }}
+                  className={`flex-1 rounded-xl border py-2 text-sm font-medium ${
+                    payment === p.id
+                      ? "border-green-600 bg-green-600 text-white shadow-sm"
+                      : "border-gray-200 bg-gray-50 text-gray-600"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {payment === "cash" && (
+              <div className="mb-5 space-y-3 rounded-xl bg-gray-50 p-4">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-gray-600">รับเงินสด (บาท)</label>
+                  <input
+                    type="number"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value)}
+                    className="input text-lg font-bold"
+                    placeholder="จำนวนเงินที่รับมา"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex items-center justify-between border-t border-gray-200 pt-3">
+                  <span className="text-sm font-semibold text-gray-600">เงินทอน</span>
+                  <span className={`text-xl font-bold ${Number(cashReceived) >= total ? "text-green-600" : "text-red-500"}`}>
+                    {Number(cashReceived) > 0 ? (Number(cashReceived) - total >= 0 ? `฿${Number(cashReceived) - total}` : "รับเงินไม่ครบ") : "฿0"}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {payment === "qr" && (
+              <div className="mb-5 flex justify-center">
+                <PromptPayQR promptpayId={settings.promptpay_id} amount={total} size={150} />
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button onClick={() => setShowCheckout(false)} className="btn-secondary flex-1">
+                ยกเลิก
+              </button>
+              <button
+                onClick={() => {
+                  setShowCheckout(false);
+                  submit(false, true);
+                }}
+                disabled={payment === "cash" && (Number(cashReceived) < total && Number(cashReceived) > 0)}
+                className="flex-[2] rounded-xl bg-green-600 py-2.5 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                ยืนยันรับเงิน
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

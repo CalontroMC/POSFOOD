@@ -5,6 +5,8 @@ const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
   const [authed, setAuthed] = useState(Auth.hasToken());
+  const [role, setRole] = useState(null);
+  const [employeeName, setEmployeeName] = useState(null);
   const [checking, setChecking] = useState(true);
   const [firstRun, setFirstRun] = useState(null); // null | true | false
 
@@ -18,10 +20,14 @@ export function AuthProvider({ children }) {
         return;
       }
       if (Auth.hasToken()) {
-        const ok = await Auth.me();
-        setAuthed(ok);
+        const res = await Auth.me();
+        setAuthed(res.authenticated);
+        setRole(res.role);
+        setEmployeeName(res.employeeName);
       } else {
         setAuthed(false);
+        setRole(null);
+        setEmployeeName(null);
       }
     } catch {
       // backend unreachable; assume not first-run
@@ -39,14 +45,20 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener("foodpos:auth-expired", onExpired);
   }, [refresh]);
 
-  const login = useCallback(async (pin) => {
-    await Auth.login(pin);
+  const login = useCallback(async (pin, roleMode, employeeId) => {
+    const res = await Auth.login(pin, roleMode, employeeId);
+    if (res.role) {
+      setRole(res.role);
+      setEmployeeName(res.employeeName);
+    }
     setAuthed(true);
   }, []);
 
   const logout = useCallback(async () => {
     await Auth.logout();
     setAuthed(false);
+    setRole(null);
+    setEmployeeName(null);
   }, []);
 
   const onSetupDone = useCallback(() => {
@@ -55,7 +67,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthCtx.Provider value={{ authed, checking, firstRun, login, logout, onSetupDone, refresh }}>
+    <AuthCtx.Provider value={{ authed, role, employeeName, checking, firstRun, login, logout, onSetupDone, refresh }}>
       {children}
     </AuthCtx.Provider>
   );

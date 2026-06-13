@@ -3,6 +3,7 @@ import db from "../db.js";
 import { adminRequired } from "../middleware/auth.js";
 import { rotateTableToken } from "../lib/tableToken.js";
 import { printCheckBillForTable } from "../lib/checkBill.js";
+import { sendSSE } from "../lib/sse.js";
 
 const r = Router();
 
@@ -39,7 +40,11 @@ r.post("/", (req, res) => {
     )
     .run(table.id, table.table_number, table_token, note || null);
 
-  res.json({ ok: true, id: info.lastInsertRowid, status: "รอ" });
+  const newId = info.lastInsertRowid;
+  res.json({ ok: true, id: newId, status: "รอ" });
+
+  // Broadcast event instantly via SSE
+  sendSSE("bill", { id: newId, table_number: table.table_number, status: "รอ" });
 
   // Auto-print the check bill to the configured printer (fire-and-forget so a
   // printer outage never blocks the customer's request). Only on a NEW request

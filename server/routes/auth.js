@@ -66,21 +66,60 @@ r.post("/setup", (req, res) => {
 });
 
 r.post("/login", loginRateLimiter, (req, res) => {
-  const { pin } = req.body || {};
+  console.log("LOGIN ATTEMPT:", req.body);
+  const { pin, role: requestedRole, employee_id: empId } = req.body || {};
   if (!pin) return res.status(400).json({ error: "pin required" });
   if (getSetting("first_run_done") !== "1") {
     return res.status(409).json({ error: "ยังไม่ตั้งค่าเริ่มต้น", code: "setup_required" });
   }
-  const stored = getSetting("admin_pin");
-  if (!stored || !verifyPin(pin, stored)) {
+  const adminPin = getSetting("admin_pin");
+  const managerPin = getSetting("manager_pin");
+  
+  let role = null;
+  let employeeId = null;
+  let employeeName = null;
+
+  if (requestedRole === "admin") {
+    if (adminPin && verifyPin(pin, adminPin)) {
+      role = "admin";
+    }
+  } else if (requestedRole === "manager") {
+    if (empId) {
+      const emp = db.prepare("SELECT id, name, pin FROM employees WHERE id = ?").get(empId);
+      if (emp) {
+        if (emp.pin && verifyPin(pin, emp.pin)) {
+          role = "manager";
+          employeeId = emp.id;
+          employeeName = emp.name;
+        } else if (!emp.pin && managerPin && verifyPin(pin, managerPin)) {
+          role = "manager";
+          employeeId = emp.id;
+          employeeName = emp.name;
+        }
+      }
+    } else {
+      if (managerPin && verifyPin(pin, managerPin)) {
+        role = "manager";
+      }
+    }
+  } else {
+    // Fallback if no role is requested (legacy support)
+    if (adminPin && verifyPin(pin, adminPin)) {
+      role = "admin";
+    } else if (managerPin && verifyPin(pin, managerPin)) {
+      role = "manager";
+    }
+  }
+
+  if (!role) {
     return res.status(401).json({ error: "PIN ไม่ถูกต้อง" });
   }
 
   // Clear attempts on success
   const ip = req.ip || req.socket.remoteAddress;
   loginAttempts.delete(ip);
-  const token = issueToken();
-  res.json({ token });
+  const token = issueToken(role, employeeId, employeeName);
+  res.json({ token, role, employeeId, employeeName });
 });
 
 r.post("/logout", (req, res) => {
@@ -93,7 +132,13 @@ r.post("/logout", (req, res) => {
 r.get("/me", (req, res) => {
   const header = req.headers["authorization"] || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-  res.json({ authenticated: !!token && isValidToken(token) });
+  const session = isValidToken(token);
+  res.json({ 
+    authenticated: !!session, 
+    role: session?.role || null,
+    employeeId: session?.employee_id || null,
+    employeeName: session?.employee_name || null
+  });
 });
 
 export default r;

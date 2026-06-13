@@ -104,15 +104,26 @@ r.get("/by-item", (req, res) => {
     .prepare(
       `SELECT oi.name,
               SUM(oi.qty) AS qty,
-              SUM(oi.qty * oi.price) AS revenue
+              SUM(oi.qty * oi.price) AS revenue,
+              SUM(oi.qty * COALESCE((
+                  SELECT SUM(r.qty * i.cost_per_unit)
+                  FROM recipes r
+                  JOIN ingredients i ON i.id = r.ingredient_id
+                  WHERE r.menu_item_id = oi.menu_item_id
+              ), 0)) AS cost
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        WHERE ${where} AND o.status != 'ยกเลิก' AND o.status != 'พักบิล'
-       GROUP BY oi.name
+       GROUP BY oi.name, oi.menu_item_id
        ORDER BY revenue DESC LIMIT 50`
     )
     .all();
-  res.json(rows);
+    
+  // Add margin
+  res.json(rows.map(r => ({
+      ...r,
+      margin: r.revenue - r.cost
+  })));
 });
 
 r.get("/by-category", (req, res) => {
@@ -133,6 +144,51 @@ r.get("/by-category", (req, res) => {
     )
     .all();
   res.json(rows);
+});
+
+r.get("/forecast", (req, res) => {
+  const data = db.prepare(`
+    SELECT date(created_at, ${TZ}) AS date, SUM(total) as revenue
+    FROM orders
+    WHERE date(created_at, ${TZ}) >= date('now', ${TZ}, '-14 days')
+      AND status != 'ยกเลิก' AND status != 'พักบิล'
+    GROUP BY date ORDER BY date ASC
+  `).all();
+
+  if (data.length < 2) {
+    return res.json({ historical: data, forecast: [] });
+  }
+
+  // Simple Linear Regression: y = mx + b
+  const n = data.length;
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  data.forEach((d, i) => {
+    sumX += i;
+    sumY += d.revenue;
+    sumXY += i * d.revenue;
+    sumXX += i * i;
+  });
+
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+
+  const forecast = [];
+  const lastDateStr = data[data.length - 1].date;
+  const lastDate = new Date(lastDateStr);
+  
+  for (let i = 1; i <= 7; i++) {
+    const nextDate = new Date(lastDate);
+    nextDate.setDate(lastDate.getDate() + i);
+    const x = n - 1 + i;
+    const predictedRevenue = Math.max(0, Math.round(slope * x + intercept));
+    
+    forecast.push({
+      date: nextDate.toISOString().slice(0, 10),
+      revenue: predictedRevenue
+    });
+  }
+
+  res.json({ historical: data, forecast });
 });
 
 export default r;

@@ -7,6 +7,7 @@ import POSPage from "./pages/POSPage.jsx";
 import MenuManagement from "./pages/MenuManagement.jsx";
 import TableManagement from "./pages/TableManagement.jsx";
 import Members from "./pages/Members.jsx";
+import MemberTiers from "./pages/MemberTiers.jsx";
 import Orders from "./pages/Orders.jsx";
 import Stock from "./pages/Stock.jsx";
 import PointsRewards from "./pages/PointsRewards.jsx";
@@ -24,7 +25,7 @@ import KDS from "./pages/KDS.jsx";
 import BarcodePrint from "./pages/BarcodePrint.jsx";
 
 function AdminRoutes() {
-  const { authed, checking, firstRun, onSetupDone } = useAuth();
+  const { authed, role, checking, firstRun, onSetupDone } = useAuth();
   if (checking) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-brand-cream">
@@ -45,6 +46,7 @@ function AdminRoutes() {
         <Route path="/menu" element={<MenuManagement />} />
         <Route path="/tables" element={<TableManagement />} />
         <Route path="/members" element={<Members />} />
+        <Route path="/member-tiers" element={<MemberTiers />} />
         <Route path="/employees" element={<Employees />} />
         <Route path="/timeclock" element={<Timeclock />} />
         <Route path="/shift" element={<ShiftPage />} />
@@ -54,8 +56,10 @@ function AdminRoutes() {
         <Route path="/points-manage" element={<PointsRewards />} />
         <Route path="/payment-qr" element={<PaymentQR />} />
         <Route path="/bill-history" element={<BillRequest />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/loyverse-sync" element={<LoyverseMenuSync />} />
+        
+        <Route path="/settings" element={role === "admin" ? <Settings /> : <Navigate to="/" replace />} />
+        <Route path="/loyverse-sync" element={role === "admin" ? <LoyverseMenuSync /> : <Navigate to="/" replace />} />
+        
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

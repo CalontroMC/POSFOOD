@@ -63,6 +63,7 @@ export async function printCheckBillForTable(tableId) {
       serviceChargeRate: Number(s.service_charge_rate) || 0,
       vatRate: Number(s.vat_rate) || 0,
       vatInclusive: s.vat_inclusive === "1",
+      roundingRule: s.rounding_rule || "none",
       promptPayId: s.promptpay_id || "",
       width: Number(s.printer_width) || 48,
     });

@@ -9,6 +9,7 @@ const emptyForm = {
   description: "",
   category_id: "",
   price: 0,
+  cost: 0,
   points: 1,
   image_url: "",
   available: 1,
@@ -64,6 +65,7 @@ export default function MenuItemEditor({ itemId, cats, onClose, onSaved }) {
         description: item.description || "",
         category_id: item.category_id || "",
         price: item.price ?? 0,
+        cost: item.cost ?? 0,
         points: item.points ?? 0,
         image_url: item.image_url || "",
         available: item.available ? 1 : 0,
@@ -148,6 +150,7 @@ export default function MenuItemEditor({ itemId, cats, onClose, onSaved }) {
         description: form.description.trim() || null,
         category_id: form.category_id ? Number(form.category_id) : null,
         price: Number(form.price),
+        cost: Number(form.cost) || 0,
         points: Number(form.points) || 0,
         image_url: form.image_url || null,
         available: form.available ? 1 : 0,
@@ -227,8 +230,8 @@ export default function MenuItemEditor({ itemId, cats, onClose, onSaved }) {
               />
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="ราคา (บาท)">
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="ราคาขาย (บาท)">
                 <input
                   type="number"
                   min={0}
@@ -238,7 +241,16 @@ export default function MenuItemEditor({ itemId, cats, onClose, onSaved }) {
                   className="input"
                 />
               </Field>
-              <Field label="แต้มต่อชิ้น (0 = ใช้อัตรา tier)">
+              <Field label="ต้นทุน (บาท)">
+                <input
+                  type="number"
+                  min={0}
+                  value={form.cost}
+                  onChange={set("cost")}
+                  className="input"
+                />
+              </Field>
+              <Field label="แต้มต่อชิ้น (0=อัตรา tier)">
                 <input
                   type="number"
                   min={0}

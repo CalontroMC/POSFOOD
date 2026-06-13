@@ -141,7 +141,7 @@ function htmlFinalReceipt({ order, items, store, paid, change }) {
 // Dispatcher
 // ============================================================
 
-async function dispatch({ escposBytes, htmlFallback, settings, jobLabel }) {
+async function dispatch({ escposBytes, htmlFallback, settings, jobLabel, station }) {
   const enabled = settings.printer_enabled === "1";
   if (!enabled) return { skipped: true, reason: "เครื่องพิมพ์ปิดอยู่ใน Settings" };
   const type = settings.printer_type || "network";
@@ -157,14 +157,22 @@ async function dispatch({ escposBytes, htmlFallback, settings, jobLabel }) {
       return { ok: true, type };
     }
     if (type === "network") {
-      if (!settings.printer_ip) return { skipped: true, reason: "ยังไม่ตั้ง IP" };
+      let targetIp = settings.printer_ip;
+      if (station === "kitchen" && settings.printer_kitchen_ip) {
+        targetIp = settings.printer_kitchen_ip;
+      } else if (station === "bar" && settings.printer_bar_ip) {
+        targetIp = settings.printer_bar_ip;
+      }
+      
+      if (!targetIp) return { skipped: true, reason: "ยังไม่ตั้ง IP สำหรับจุดนี้" };
+      
       await apiPost("/printers/print", {
         type: "network",
-        ip: settings.printer_ip,
+        ip: targetIp,
         port: Number(settings.printer_port) || 9100,
         data_base64: bytesToBase64(escposBytes),
       });
-      return { ok: true, type };
+      return { ok: true, type, ip: targetIp };
     }
     if (type === "local") {
       if (!settings.printer_name) return { skipped: true, reason: "ยังไม่ตั้งชื่อ printer" };
@@ -235,7 +243,7 @@ export async function printOrderTickets(order, items, { menuItems, settings } = 
     const html = htmlOrderTicket({ title: "ครัว (KITCHEN)", order, items: food });
     results.push({
       station: "kitchen",
-      ...(await dispatch({ escposBytes: bytes, htmlFallback: html, settings, jobLabel: "Kitchen" })),
+      ...(await dispatch({ escposBytes: bytes, htmlFallback: html, settings, jobLabel: "Kitchen", station: "kitchen" })),
     });
   }
   if (drinks.length > 0) {
@@ -243,7 +251,7 @@ export async function printOrderTickets(order, items, { menuItems, settings } = 
     const html = htmlOrderTicket({ title: "บาร์ (BAR)", order, items: drinks });
     results.push({
       station: "bar",
-      ...(await dispatch({ escposBytes: bytes, htmlFallback: html, settings, jobLabel: "Bar" })),
+      ...(await dispatch({ escposBytes: bytes, htmlFallback: html, settings, jobLabel: "Bar", station: "bar" })),
     });
   }
   return { ok: true, results };
@@ -266,6 +274,7 @@ export async function printFinalReceipt(order, items, { settings, paid, change }
     serviceChargeRate: Number(settings.service_charge_rate) || 0,
     vatRate: Number(settings.vat_rate) || 0,
     vatInclusive: settings.vat_inclusive === "1",
+    roundingRule: settings.rounding_rule || "none",
     promptPayId: settings.promptpay_id || "",
     paid,
     change,

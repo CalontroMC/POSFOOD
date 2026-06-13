@@ -82,7 +82,7 @@ r.delete("/categories/:id", adminRequired, (req, res) => {
 r.get("/items", (req, res) => {
   const rows = db
     .prepare(
-      `SELECT m.id, m.name, m.description, m.price, m.points, m.image_url,
+      `SELECT m.id, m.name, m.description, m.price, m.cost, m.points, m.image_url,
               m.available, m.kitchen, m.category_id, m.loyverse_variant_id,
               c.name AS category_name
        FROM menu_items m
@@ -90,20 +90,42 @@ r.get("/items", (req, res) => {
        ORDER BY c.sort_order, m.id`
     )
     .all();
+
+  const recipes = db.prepare(
+    `SELECT r.menu_item_id, r.qty, i.quantity 
+     FROM recipes r 
+     JOIN ingredients i ON i.id = r.ingredient_id`
+  ).all();
+
+  // Group recipes by menu_item_id
+  const recipeMap = {};
+  for (const r of recipes) {
+    if (!recipeMap[r.menu_item_id]) recipeMap[r.menu_item_id] = [];
+    recipeMap[r.menu_item_id].push(r);
+  }
+
+  const items = rows.map((r) => {
+    let isOut = false;
+    if (recipeMap[r.id]) {
+      isOut = recipeMap[r.id].some((rec) => rec.quantity < rec.qty);
+    }
+    return { ...r, is_out_of_stock: isOut };
+  });
+
   const withOpts = req.query.with === "options";
   if (withOpts) {
     return res.json(
-      rows.map((r) => ({ ...r, options: loadOptionsForItem(r.id) }))
+      items.map((r) => ({ ...r, options: loadOptionsForItem(r.id) }))
     );
   }
-  res.json(rows);
+  res.json(items);
 });
 
 r.get("/items/:id", (req, res) => {
   const id = Number(req.params.id);
   const row = db
     .prepare(
-      `SELECT m.id, m.name, m.description, m.price, m.points, m.image_url,
+      `SELECT m.id, m.name, m.description, m.price, m.cost, m.points, m.image_url,
               m.available, m.kitchen, m.category_id, m.loyverse_variant_id,
               c.name AS category_name
        FROM menu_items m
@@ -112,22 +134,32 @@ r.get("/items/:id", (req, res) => {
     )
     .get(id);
   if (!row) return res.status(404).json({ error: "not found" });
-  res.json({ ...row, options: loadOptionsForItem(id) });
+
+  const recipes = db.prepare(
+    `SELECT r.qty, i.quantity 
+     FROM recipes r 
+     JOIN ingredients i ON i.id = r.ingredient_id 
+     WHERE r.menu_item_id = ?`
+  ).all(id);
+  const isOut = recipes.some((rec) => rec.quantity < rec.qty);
+
+  res.json({ ...row, is_out_of_stock: isOut, options: loadOptionsForItem(id) });
 });
 
 r.post("/items", adminRequired, (req, res) => {
-  const { name, category_id, price, points = 0, image_url, description, available = 1, kitchen = 1, loyverse_variant_id } =
+  const { name, category_id, price, cost = 0, points = 0, image_url, description, available = 1, kitchen = 1, loyverse_variant_id } =
     req.body || {};
   if (!name || price == null)
     return res.status(400).json({ error: "name and price required" });
   const info = db
     .prepare(
-      "INSERT INTO menu_items (name, category_id, price, points, image_url, description, available, kitchen, loyverse_variant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO menu_items (name, category_id, price, cost, points, image_url, description, available, kitchen, loyverse_variant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .run(
       name,
       category_id || null,
       Number(price),
+      Number(cost) || 0,
       Number(points) || 0,
       image_url || null,
       description || null,
@@ -145,6 +177,7 @@ r.patch("/items/:id", adminRequired, (req, res) => {
     "description",
     "category_id",
     "price",
+    "cost",
     "points",
     "image_url",
     "available",

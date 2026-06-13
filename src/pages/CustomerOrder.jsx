@@ -19,6 +19,8 @@ import {
 import { apiGet, apiPost, cachedGet } from "../lib/api.js";
 import MenuOptionPicker from "../components/MenuOptionPicker.jsx";
 import WifiGate from "../components/WifiGate.jsx";
+import StatusBadge from "../components/StatusBadge.jsx";
+import PromptPayQR from "../components/PromptPayQR.jsx";
 
 const MEMBER_KEY = "foodpos_customer_phone";
 const ORDERED_KEY = (tok) => `foodpos_has_ordered_${tok}`;
@@ -55,6 +57,52 @@ export default function CustomerOrder() {
   const [wifiAck, setWifiAck] = useState(
     () => typeof localStorage !== "undefined" && localStorage.getItem(WIFI_ACK_KEY) === "1"
   );
+  const [activeBill, setActiveBill] = useState(null);
+  const [showActiveBill, setShowActiveBill] = useState(false);
+  const [memberHistory, setMemberHistory] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const isKiosk = params.get("kiosk") === "1";
+  const [settings, setSettings] = useState({});
+
+  useEffect(() => {
+    apiGet("/settings", { auth: false }).then(setSettings).catch(console.error);
+  }, []);
+
+  // Kiosk idle timeout
+  useEffect(() => {
+    if (!isKiosk) return;
+    let timer;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        window.location.reload();
+      }, 30000);
+    };
+    window.addEventListener("touchstart", reset);
+    window.addEventListener("click", reset);
+    reset();
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("touchstart", reset);
+      window.removeEventListener("click", reset);
+    };
+  }, [isKiosk]);
+
+  const fetchActiveBill = async () => {
+    if (!token) return;
+    try {
+      const bill = await apiGet(`/orders/active/${token}`, { auth: false, silent401: true });
+      setActiveBill(bill);
+    } catch {
+      setActiveBill(null);
+    }
+  };
+
+  useEffect(() => {
+    fetchActiveBill();
+    const t = setInterval(fetchActiveBill, 10000);
+    return () => clearInterval(t);
+  }, [token]);
 
   // Fetch shop Wi-Fi config (returns {enabled:false} when admin hasn't set it up)
   useEffect(() => {
@@ -131,15 +179,23 @@ export default function CustomerOrder() {
       });
       setMember(m);
       localStorage.setItem(MEMBER_KEY, phone);
+      try {
+        const h = await apiGet(`/members/me/history?phone=${encodeURIComponent(phone)}`, { auth: false, silent401: true });
+        setMemberHistory(h);
+      } catch (e) {
+        setMemberHistory(null);
+      }
     } catch {
       localStorage.removeItem(MEMBER_KEY);
       setMember(null);
+      setMemberHistory(null);
     }
   };
 
   const logoutMember = () => {
     localStorage.removeItem(MEMBER_KEY);
     setMember(null);
+    setMemberHistory(null);
     setPointsToRedeem("");
   };
 
@@ -201,6 +257,7 @@ export default function CustomerOrder() {
       if (token) localStorage.setItem(ORDERED_KEY(token), "1");
       // Refresh member balance so next order shows the new points
       if (member?.phone) loadMember(member.phone);
+      fetchActiveBill();
     } catch (e) {
       setErr(e.message || "ส่งออเดอร์ไม่สำเร็จ");
     } finally {
@@ -230,7 +287,7 @@ export default function CustomerOrder() {
         <p className="mt-1 text-sm text-gray-500">
           เลขที่ออเดอร์{" "}
           <span className="font-bold text-brand-orange">{done.order_number}</span>
-          {" · "}โต๊ะ {done.table_number}
+          {isKiosk ? " · กรุณารับอาหารที่เคาน์เตอร์" : ` · โต๊ะ ${done.table_number}`}
         </p>
 
         {member && (
@@ -260,7 +317,7 @@ export default function CustomerOrder() {
           <span className="text-brand-orange">฿{done.total}</span>
         </div>
         <div className="mt-6 space-y-2">
-          <CallBillButton status={billStatus} onCall={callBill} err={billErr} />
+          {!isKiosk && <CallBillButton status={billStatus} onCall={callBill} err={billErr} />}
           <button onClick={() => setDone(null)} className="btn-secondary w-full">
             สั่งเพิ่ม
           </button>
@@ -291,8 +348,8 @@ export default function CustomerOrder() {
       <header className="sticky top-0 z-10 bg-white shadow-sm">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <div>
-            <p className="text-xs text-gray-400">สั่งอาหาร · โต๊ะ</p>
-            <p className="text-lg font-bold text-gray-900">{table.table_number}</p>
+            <p className="text-xs text-gray-400">{isKiosk ? "สั่งอาหารกลับบ้าน / ทานที่ร้าน" : "สั่งอาหาร · โต๊ะ"}</p>
+            <p className="text-lg font-bold text-gray-900">{isKiosk ? "Self Service" : table.table_number}</p>
           </div>
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-orange text-white">
             <UtensilsCrossed size={18} />
@@ -302,6 +359,7 @@ export default function CustomerOrder() {
           member={member}
           onSignup={() => setShowSignup(true)}
           onLogout={logoutMember}
+          onShowHistory={() => setShowHistory(true)}
         />
       </header>
 
@@ -340,7 +398,9 @@ export default function CustomerOrder() {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          {filtered.map((m) => (
+          {filtered.map((m) => {
+            const hasOrderedBefore = memberHistory?.pastItemIds?.includes(m.id);
+            return (
             <button
               key={m.id}
               onClick={() => onMenuClick(m)}
@@ -357,9 +417,23 @@ export default function CustomerOrder() {
                 </div>
               )}
               <div className="p-3">
-                <p className="line-clamp-1 text-sm font-semibold text-gray-900">
-                  {m.name}
-                </p>
+                <div className="mb-1 flex items-start justify-between">
+                  <p className="line-clamp-2 text-sm font-semibold text-gray-900 leading-tight">
+                    {m.name}
+                  </p>
+                  <div className="ml-2 flex shrink-0 flex-col items-end gap-1">
+                    {m.is_out_of_stock && (
+                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
+                        ของหมด
+                      </span>
+                    )}
+                    {hasOrderedBefore && !m.is_out_of_stock && (
+                      <span className="rounded-full bg-gradient-to-r from-emerald-400 to-teal-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm shadow-emerald-200/50 animate-[pulse_3s_ease-in-out_infinite]">
+                        👍 สั่งบ่อย
+                      </span>
+                    )}
+                  </div>
+                </div>
                 <p className="text-xs text-gray-400">{m.category_name}</p>
                 <div className="mt-1 flex items-center justify-between">
                   <p className="text-base font-bold text-brand-orange">฿{m.price}</p>
@@ -371,7 +445,7 @@ export default function CustomerOrder() {
                 </div>
               </div>
             </button>
-          ))}
+          )})}
         </div>
 
         <details className="card mt-6 p-4 text-sm">
@@ -528,11 +602,136 @@ export default function CustomerOrder() {
         </div>
       )}
 
-      {/* Floating "Call bill" button — shown after first order, only when cart empty */}
+      {/* Floating "Call bill" & "My Bill" button — shown after first order, only when cart empty */}
       {hasOrdered && cart.length === 0 && (
         <div className="fixed inset-x-0 bottom-0 z-10 border-t border-amber-200 bg-amber-50/95 backdrop-blur-sm">
-          <div className="mx-auto max-w-2xl px-4 py-3">
-            <CallBillButton status={billStatus} onCall={callBill} err={billErr} />
+          <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
+            <div className="flex-1">
+              <CallBillButton status={billStatus} onCall={callBill} err={billErr} />
+            </div>
+            {activeBill && (
+              <button
+                onClick={() => setShowActiveBill(true)}
+                className="flex h-[46px] items-center justify-center gap-2 rounded-2xl bg-white px-5 text-sm font-bold text-brand-orange shadow-sm border border-brand-orange transition active:scale-[0.98]"
+              >
+                <Receipt size={18} />
+                บิลของฉัน
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showActiveBill && activeBill && (
+        <div className="fixed inset-0 z-40 flex flex-col justify-end bg-black/50 sm:items-center sm:justify-center p-0 sm:p-4">
+          <div className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">
+                  {isKiosk ? "รายการของฉัน" : `บิลโต๊ะ ${activeBill.table_number}`}
+                </h3>
+                <p className="text-xs text-gray-500">ออเดอร์ #{activeBill.order_number}</p>
+              </div>
+              <button onClick={() => setShowActiveBill(false)} className="rounded-full bg-gray-100 p-2 text-gray-500 hover:bg-gray-200">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="mb-4 flex justify-between rounded-xl bg-gray-50 p-4">
+                <span className="text-sm font-medium text-gray-600">สถานะปัจจุบัน</span>
+                <OrderStatusBadge status={activeBill.status} />
+              </div>
+              <ul className="space-y-4">
+                {activeBill.items.map((it) => (
+                  <li key={it.id} className="flex justify-between border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                    <div className="min-w-0 flex-1 pr-4">
+                      <p className="text-sm font-medium text-gray-900">{it.name} <span className="text-xs text-gray-500">×{it.qty}</span></p>
+                      {it.options?.length > 0 && (
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          {it.options.map(o => o.name).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-gray-900">฿{it.price * it.qty}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="bg-gray-50 p-5">
+              <div className="mb-4 flex items-center justify-between font-bold text-lg">
+                <span>ยอดรวม</span>
+                <span className="text-brand-orange">฿{activeBill.total}</span>
+              </div>
+              
+              {isKiosk ? (
+                <div className="mt-4 flex justify-center">
+                  <PromptPayQR promptpayId={settings.promptpay_id} amount={activeBill.total} size={180} />
+                </div>
+              ) : (
+                <>
+                  <div className="mb-4 flex justify-center">
+                    <PromptPayQR promptpayId={settings.promptpay_id} amount={activeBill.total} size={150} />
+                  </div>
+                  <CallBillButton status={billStatus} onCall={callBill} err={billErr} />
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHistory && memberHistory && (
+        <div className="fixed inset-0 z-40 flex flex-col justify-end bg-black/40 backdrop-blur-[2px] transition-all sm:items-center sm:justify-center p-0 sm:p-4">
+          <div className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] bg-white shadow-2xl sm:rounded-3xl transform transition-transform">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 bg-white/80 backdrop-blur-md">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                  <Receipt size={16} />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900">ประวัติการสั่งของฉัน</h3>
+              </div>
+              <button onClick={() => setShowHistory(false)} className="rounded-full bg-gray-50 p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 bg-slate-50/50">
+              {memberHistory.orders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <Receipt size={48} className="mb-3 opacity-20" />
+                  <p className="text-sm font-medium">ยังไม่มีประวัติการสั่งอาหาร</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {memberHistory.orders.map(o => (
+                    <div key={o.id} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="mb-3 flex items-center justify-between border-b border-gray-50 pb-3">
+                        <div>
+                          <p className="text-xs font-bold text-gray-900">ออเดอร์ #{o.order_number}</p>
+                          <p className="mt-0.5 text-[10px] text-gray-400 font-medium">
+                            {new Date(o.created_at.replace(" ", "T") + "Z").toLocaleString("th-TH", {
+                              day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                        <OrderStatusBadge status={o.status} />
+                      </div>
+                      <ul className="space-y-1.5">
+                        {o.items.map((it, idx) => (
+                          <li key={idx} className="flex justify-between text-xs text-gray-600">
+                            <span>{it.name} <span className="text-gray-400 text-[10px] ml-1">×{it.qty}</span></span>
+                            <span className="font-medium text-gray-900">฿{it.price * it.qty}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="mt-3 flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 text-sm font-bold text-gray-900">
+                        <span className="text-gray-600 text-xs">ยอดสุทธิ</span>
+                        <span className="text-brand-orange text-base">฿{o.total}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -606,13 +805,21 @@ function MemberBar({ member, onSignup, onLogout }) {
             </p>
           </div>
         </div>
-        <button
-          onClick={onLogout}
-          className="rounded-lg p-1.5 text-gray-400 hover:text-gray-700"
-          aria-label="ออกจากบัญชี"
-        >
-          <LogOut size={14} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onShowHistory}
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-100 to-orange-100 px-3 py-1.5 text-xs font-bold text-amber-800 shadow-sm transition-all active:scale-95 hover:from-amber-200 hover:to-orange-200"
+          >
+            <Receipt size={14} className="text-amber-600" /> ประวัติ
+          </button>
+          <button
+            onClick={onLogout}
+            className="rounded-xl p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            aria-label="ออกจากบัญชี"
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
     );
   }

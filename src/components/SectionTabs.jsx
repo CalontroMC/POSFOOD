@@ -57,6 +57,7 @@ export const SECTIONS = {
   ],
   members: [
     { to: "/members", label: "สมาชิก" },
+    { to: "/member-tiers", label: "ระดับสมาชิก" },
     { to: "/points-manage", label: "จัดการแต้ม" },
   ],
   settings: [

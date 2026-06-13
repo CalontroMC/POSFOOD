@@ -86,7 +86,7 @@ function MergePicker({ currentId, tableId, onCancel, onMerged }) {
   );
 }
 
-function OrderDetailModal({ detail, onClose, onChanged }) {
+function OrderDetailModal({ detail, settings, onClose, onChanged }) {
   const [editingDiscount, setEditingDiscount] = useState(false);
   const [splitMode, setSplitMode] = useState(false);
   const [mergeMode, setMergeMode] = useState(false);
@@ -102,6 +102,8 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
   });
   const [checkingOut, setCheckingOut] = useState(false);
   const [payMethod, setPayMethod] = useState(detail.payment_method || "cash");
+  const [cashReceived, setCashReceived] = useState("");
+  const [splitAmts, setSplitAmts] = useState({ cash: "", qr: "", card: "" });
   const [closingBill, setClosingBill] = useState(false);
 
   const isHeld = detail.status === "พักบิล";
@@ -135,7 +137,7 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
   };
 
   const addItemDirect = async (entry) => {
-    await apiPost(`/orders/${detail.id}/items`, {
+    const updatedOrder = await apiPost(`/orders/${detail.id}/items`, {
       items: [
         {
           menu_item_id: entry.item.id,
@@ -145,6 +147,17 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
         },
       ],
     });
+
+    const oldIds = detail.items.map(i => i.id);
+    const newItems = updatedOrder.items.filter(i => !oldIds.includes(i.id));
+
+    try {
+      const settings = await apiGet("/settings", { auth: false });
+      if (autoPrintEnabled(settings) && newItems.length > 0) {
+        printOrderTickets(updatedOrder, newItems, { menuItems, settings }).catch(console.warn);
+      }
+    } catch {}
+
     setPickerItem(null);
     setAddingItem(false);
     await onChanged();
@@ -182,11 +195,16 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
 
   const closeBill = async () => {
     setClosingBill(true);
+    let payload = { status: "เสร็จสิ้น", payment_method: payMethod };
+    if (payMethod === "split") {
+      const sp = {};
+      if (Number(splitAmts.cash) > 0) sp.cash = Number(splitAmts.cash);
+      if (Number(splitAmts.qr) > 0) sp.qr = Number(splitAmts.qr);
+      if (Number(splitAmts.card) > 0) sp.card = Number(splitAmts.card);
+      payload.split_payments = sp;
+    }
     try {
-      await apiPatch(`/orders/${detail.id}/status`, {
-        status: "เสร็จสิ้น",
-        payment_method: payMethod,
-      });
+      await apiPatch(`/orders/${detail.id}/status`, payload);
       await onChanged();
       onClose();
     } catch (e) {
@@ -392,6 +410,12 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
                 <button
                   onClick={async () => {
                     await apiPost(`/orders/${detail.id}/resume`);
+                    try {
+                      const settings = await apiGet("/settings", { auth: false });
+                      if (autoPrintEnabled(settings)) {
+                        printOrderTickets({ ...detail, status: "รอรับ" }, detail.items, { settings }).catch(console.warn);
+                      }
+                    } catch {}
                     await onChanged();
                   }}
                   className="btn-primary flex-1 text-xs"
@@ -433,15 +457,21 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
             ) : (
               <div className="mt-2 rounded-xl border border-green-200 bg-green-50/70 p-3">
                 <p className="mb-2 text-xs font-medium text-gray-600">เลือกวิธีรับเงิน</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   {[
                     { id: "cash", label: "เงินสด" },
                     { id: "qr", label: "QR" },
                     { id: "card", label: "บัตร" },
+                    { id: "split", label: "แบ่งจ่าย" },
+                    ...(settings?.payment_grab === "1" ? [{ id: "grab", label: "Grab" }] : []),
+                    ...(settings?.payment_lineman === "1" ? [{ id: "lineman", label: "LINE MAN" }] : []),
+                    ...(settings?.payment_foodpanda === "1" ? [{ id: "foodpanda", label: "Foodpanda" }] : []),
+                    ...(settings?.payment_shopee === "1" ? [{ id: "shopee", label: "ShopeeFood" }] : []),
+                    ...(settings?.payment_transfer === "1" ? [{ id: "transfer", label: "โอนเงิน" }] : []),
                   ].map((p) => (
                     <button
                       key={p.id}
-                      onClick={() => setPayMethod(p.id)}
+                      onClick={() => { setPayMethod(p.id); setCashReceived(""); setSplitAmts({ cash: "", qr: "", card: "" }); }}
                       className={`rounded-lg border px-2 py-2 text-xs font-medium ${
                         payMethod === p.id
                           ? "border-green-600 bg-green-600 text-white"
@@ -452,9 +482,50 @@ function OrderDetailModal({ detail, onClose, onChanged }) {
                     </button>
                   ))}
                 </div>
+                {payMethod === "cash" && (
+                  <div className="mt-3 rounded-lg bg-white p-3 shadow-sm border border-gray-100">
+                    <label className="mb-1 block text-[11px] font-semibold text-gray-500">รับเงินสด (บาท)</label>
+                    <input
+                      type="number"
+                      value={cashReceived}
+                      onChange={(e) => setCashReceived(e.target.value)}
+                      className="input text-sm font-bold"
+                      placeholder="จำนวนเงิน"
+                      autoFocus
+                    />
+                    <div className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2 text-sm">
+                      <span className="font-semibold text-gray-600">เงินทอน</span>
+                      <span className={`font-bold ${Number(cashReceived) >= detail.total ? "text-green-600" : "text-red-500"}`}>
+                        {Number(cashReceived) > 0 ? (Number(cashReceived) - detail.total >= 0 ? `฿${Number(cashReceived) - detail.total}` : "รับเงินไม่ครบ") : "฿0"}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {payMethod === "split" && (
+                  <div className="mt-3 space-y-2 rounded-lg bg-white p-3 shadow-sm border border-gray-100">
+                    {Object.keys(splitAmts).map(k => (
+                       <div key={k} className="flex items-center gap-2">
+                         <span className="w-16 text-xs font-bold text-gray-600 uppercase">{k}</span>
+                         <input
+                           type="number"
+                           className="input text-sm"
+                           placeholder="0"
+                           value={splitAmts[k]}
+                           onChange={e => setSplitAmts(s => ({ ...s, [k]: e.target.value }))}
+                         />
+                       </div>
+                    ))}
+                    <div className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2 text-xs">
+                      <span className="font-semibold text-gray-600">ยอดรวมแบ่งจ่าย</span>
+                      <span className={`font-bold ${((Number(splitAmts.cash)||0) + (Number(splitAmts.qr)||0) + (Number(splitAmts.card)||0)) === detail.total ? "text-green-600" : "text-red-500"}`}>
+                        ฿{((Number(splitAmts.cash)||0) + (Number(splitAmts.qr)||0) + (Number(splitAmts.card)||0))} / ฿{detail.total}
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <button
                   onClick={closeBill}
-                  disabled={closingBill}
+                  disabled={closingBill || (payMethod === "cash" && (Number(cashReceived) < detail.total && Number(cashReceived) > 0)) || (payMethod === "split" && (((Number(splitAmts.cash)||0) + (Number(splitAmts.qr)||0) + (Number(splitAmts.card)||0)) !== detail.total))}
                   className="mt-3 w-full rounded-xl bg-green-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
                 >
                   {closingBill ? "กำลังเช็คบิล..." : `ยืนยันเช็คบิล ฿${detail.total}`}
@@ -489,11 +560,21 @@ export default function Orders() {
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
 
-  const load = async () => setOrders(await apiGet("/orders"));
+  const [settings, setSettings] = useState({});
+
+  const load = async () => {
+    const [o, s] = await Promise.all([
+      apiGet("/orders"),
+      apiGet("/settings", { auth: false })
+    ]);
+    setOrders(o);
+    setSettings(s || {});
+  };
   useEffect(() => {
     load();
-    const t = setInterval(load, 10000);
-    return () => clearInterval(t);
+    const ev = new EventSource("/api/events");
+    ev.addEventListener("order", () => load());
+    return () => ev.close();
   }, []);
 
   const filtered = useMemo(
@@ -514,8 +595,8 @@ export default function Orders() {
     setDetail(d);
   };
 
-  const setStatus = async (id, status) => {
-    await apiPatch(`/orders/${id}/status`, { status });
+  const setStatus = async (id, status, extra = {}) => {
+    await apiPatch(`/orders/${id}/status`, { status, ...extra });
     // When order is finalized → print receipt
     if (status === "เสร็จสิ้น") {
       try {
@@ -667,7 +748,10 @@ export default function Orders() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setStatus(o.id, "ยกเลิก");
+                      const reason = window.prompt("ระบุเหตุผลการยกเลิกบิล (เช่น ของหมด, ลูกค้ายกเลิก):");
+                      if (reason !== null) {
+                        setStatus(o.id, "ยกเลิก", { cancel_reason: reason });
+                      }
                     }}
                     className="btn-secondary py-2 text-xs text-red-500"
                   >
@@ -683,6 +767,7 @@ export default function Orders() {
       {openId && detail && (
         <OrderDetailModal
           detail={detail}
+          settings={settings}
           onClose={() => {
             setOpenId(null);
             setDetail(null);

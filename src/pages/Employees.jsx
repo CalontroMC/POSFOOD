@@ -31,6 +31,7 @@ export default function Employees() {
         role: editing.role.trim() || "พนักงาน",
         phone: editing.phone?.trim() || null,
         active: editing.active ? 1 : 0,
+        pin: editing.pin || "",
       };
       if (editing.id) await apiPatch(`/employees/${editing.id}`, payload);
       else await apiPost("/employees", payload);
@@ -111,6 +112,17 @@ export default function Employees() {
                   value={editing.phone || ""}
                   onChange={(e) => setEditing({ ...editing, phone: e.target.value })}
                   className="input"
+                />
+              </Field>
+              <Field label="รหัส PIN 4 หลัก">
+                <input
+                  type="password"
+                  maxLength={4}
+                  inputMode="numeric"
+                  value={editing.pin || ""}
+                  onChange={(e) => setEditing({ ...editing, pin: e.target.value.replace(/[^0-9]/g, "") })}
+                  className="input"
+                  placeholder="เว้นว่างถ้าไม่ต้องการเปลี่ยน"
                 />
               </Field>
               <Toggle

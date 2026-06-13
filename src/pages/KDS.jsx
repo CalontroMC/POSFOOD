@@ -27,8 +27,9 @@ export default function KDS() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    const ev = new EventSource("/api/events");
+    ev.addEventListener("order", () => load());
+    return () => ev.close();
   }, []);
 
   const advance = async (id, next) => {

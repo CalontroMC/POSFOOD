@@ -1,6 +1,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { adminRequired } from "../middleware/auth.js";
+import { hashPin } from "../lib/hash.js";
 
 const r = Router();
 
@@ -14,13 +15,14 @@ r.get("/", (req, res) => {
 });
 
 r.post("/", adminRequired, (req, res) => {
-  const { name, role = "พนักงาน", phone = null, active = 1 } = req.body || {};
+  const { name, role = "พนักงาน", phone = null, active = 1, pin = null } = req.body || {};
   if (!name) return res.status(400).json({ error: "name required" });
+  const hashedPin = pin ? hashPin(pin) : null;
   const info = db
     .prepare(
-      "INSERT INTO employees (name, role, phone, active) VALUES (?, ?, ?, ?)"
+      "INSERT INTO employees (name, role, phone, pin, active) VALUES (?, ?, ?, ?, ?)"
     )
-    .run(name, role, phone, active ? 1 : 0);
+    .run(name, role, phone, hashedPin, active ? 1 : 0);
   res.json({ id: info.lastInsertRowid });
 });
 
@@ -34,6 +36,10 @@ r.patch("/:id", adminRequired, (req, res) => {
       sets.push(`${f} = ?`);
       vals.push(req.body[f]);
     }
+  }
+  if (req.body && "pin" in req.body) {
+    sets.push(`pin = ?`);
+    vals.push(req.body.pin ? hashPin(req.body.pin) : null);
   }
   if (sets.length === 0) return res.json({ ok: true });
   vals.push(id);

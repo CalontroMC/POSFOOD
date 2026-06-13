@@ -4,6 +4,8 @@ import { adminRequired, isValidToken } from "../middleware/auth.js";
 import { printOrderTickets } from "../lib/printerJob.js";
 import { rotateTableToken } from "../lib/tableToken.js";
 import { syncOrderToLoyverse } from "../lib/loyverseSync.js";
+import { sendSSE } from "../lib/sse.js";
+import { sendLineNotify } from "../lib/lineNotify.js";
 
 function isAdminRequest(req) {
   const header = req.headers["authorization"] || "";
@@ -45,6 +47,7 @@ function loadOrder(id) {
     .all(id);
   return {
     ...order,
+    split_payments: order.split_payments ? JSON.parse(order.split_payments) : null,
     items: items.map((it) => ({
       ...it,
       options: it.options_json ? JSON.parse(it.options_json) : [],
@@ -81,6 +84,21 @@ r.get("/:id", (req, res) => {
   res.json(order);
 });
 
+r.get("/active/:table_token", (req, res) => {
+  const token = req.params.table_token;
+  const t = db.prepare("SELECT id FROM tables WHERE qr_token = ?").get(token);
+  if (!t) return res.status(404).json({ error: "table not found" });
+
+  const active = db.prepare(
+    `SELECT id FROM orders 
+     WHERE table_id = ? AND status != 'ยกเลิก' 
+     ORDER BY id DESC LIMIT 1`
+  ).get(t.id);
+
+  if (!active) return res.json(null);
+  res.json(loadOrder(active.id));
+});
+
 function computeDiscount(subtotal, type, value) {
   if (!type || !value || value <= 0) return 0;
   if (type === "percent") return Math.min(subtotal, Math.round((subtotal * value) / 100));
@@ -89,7 +107,7 @@ function computeDiscount(subtotal, type, value) {
 
 // Public — customer submits from QR table
 r.post("/", (req, res) => {
-  const { table_token, member_phone, items, note, payment_method, discount_type, discount_value, hold, label, points_redeemed } = req.body || {};
+  const { table_token, member_phone, items, note, payment_method, discount_type, discount_value, hold, label, points_redeemed, reward_id } = req.body || {};
   if (!Array.isArray(items) || items.length === 0)
     return res.status(400).json({ error: "items required" });
 
@@ -108,8 +126,38 @@ r.post("/", (req, res) => {
 
   // Loyalty: validate & clamp redeem (1 pt = 1 baht). Real deduct happens atomically inside transaction.
   const requestedRedeem = Math.max(0, Math.floor(Number(points_redeemed) || 0));
-  if (requestedRedeem > 0 && !memberId) {
-    return res.status(400).json({ error: "ต้องเลือกสมาชิกก่อนใช้แต้ม" });
+  let finalDiscountType = discount_type;
+  let finalDiscountValue = Number(discount_value) || 0;
+  let rewardPointsCost = 0;
+
+  if (reward_id) {
+    if (!memberId) return res.status(400).json({ error: "ต้องเลือกสมาชิกก่อนแลกของรางวัล" });
+    const reward = db.prepare("SELECT * FROM rewards WHERE id = ? AND active = 1").get(reward_id);
+    if (!reward) return res.status(400).json({ error: "ของรางวัลไม่ถูกต้องหรือถูกยกเลิกไปแล้ว" });
+
+    rewardPointsCost = reward.points_cost;
+
+    if (reward.discount_value > 0) {
+      finalDiscountValue += reward.discount_value;
+      if (!finalDiscountType) finalDiscountType = "amount";
+    }
+
+    if (reward.menu_item_id) {
+      const mi = db.prepare("SELECT id, name FROM menu_items WHERE id = ?").get(reward.menu_item_id);
+      if (mi) {
+        items.push({
+          menu_item_id: mi.id,
+          qty: 1,
+          note: `[แลกรางวัล]`,
+          option_ids: [],
+          _priceOverride: 0
+        });
+      }
+    }
+  } else {
+    if (requestedRedeem > 0 && !memberId) {
+      return res.status(400).json({ error: "ต้องเลือกสมาชิกก่อนใช้แต้ม" });
+    }
   }
 
   const itemRows = [];
@@ -153,7 +201,7 @@ r.post("/", (req, res) => {
       }
     }
 
-    const unitPrice = mi.price + optionDelta;
+    const unitPrice = it._priceOverride !== undefined ? it._priceOverride : (mi.price + optionDelta);
     subtotal += unitPrice * qty;
     itemRows.push({
       ...mi,
@@ -220,6 +268,7 @@ r.post("/", (req, res) => {
           db.prepare(
             "UPDATE orders SET subtotal = ?, discount = ?, total = ?, points_redeemed = ?, status = 'รอรับ', member_id = COALESCE(member_id, ?) WHERE id = ?"
           ).run(sub, disc, newTotal, redeemed, memberId, openOrder.id);
+          db.prepare("INSERT INTO order_status_log (order_id, status) VALUES (?, 'รอรับ')").run(openOrder.id);
           if (note) {
             db.prepare(
               "UPDATE orders SET note = CASE WHEN note IS NULL OR note = '' THEN ? ELSE note || ' | ' || ? END WHERE id = ?"
@@ -232,6 +281,9 @@ r.post("/", (req, res) => {
 
         const updated = loadOrder(openOrder.id);
         res.json(updated);
+        
+        // Broadcast event via SSE
+        sendSSE("order", { id: updated.id, order_number: updated.order_number, table_number: updated.table_number, label: updated.label, total: updated.total });
 
         // ปริ้นครัว/บาร์เฉพาะรายการรอบใหม่ (รอบเก่าปริ้นไปแล้ว)
         if (req.body?._client_print !== 1) {
@@ -265,10 +317,18 @@ r.post("/", (req, res) => {
   }
   const shiftId = currentShift?.id || null;
 
-  const discount = computeDiscount(subtotal, discount_type, Number(discount_value) || 0);
-  // Clamp redeem to amount remaining after discount (don't waste points beyond what they offset)
+  const discount = computeDiscount(subtotal, finalDiscountType, finalDiscountValue);
   const afterDiscount = Math.max(0, subtotal - discount);
-  const pointsRedeemed = Math.min(requestedRedeem, afterDiscount);
+  
+  let pointsRedeemed = 0;
+  let totalPointsToDeduct = 0;
+  if (reward_id) {
+    totalPointsToDeduct = rewardPointsCost;
+  } else {
+    pointsRedeemed = Math.min(requestedRedeem, afterDiscount);
+    totalPointsToDeduct = pointsRedeemed;
+  }
+  
   const total = Math.max(0, afterDiscount - pointsRedeemed);
   const orderNo = nextOrderNumber();
   const payment = payment_method && ["cash", "qr", "card", "other"].includes(payment_method)
@@ -279,10 +339,10 @@ r.post("/", (req, res) => {
   try {
     const result = db.transaction(() => {
       // Atomic redeem: prevents double-spend if same member submits two orders concurrently
-      if (pointsRedeemed > 0) {
+      if (totalPointsToDeduct > 0) {
         const upd = db
           .prepare("UPDATE members SET points = points - ? WHERE id = ? AND points >= ?")
-          .run(pointsRedeemed, memberId, pointsRedeemed);
+          .run(totalPointsToDeduct, memberId, totalPointsToDeduct);
         if (upd.changes !== 1) {
           const err = new Error("แต้มของสมาชิกไม่พอ");
           err.statusCode = 400;
@@ -292,9 +352,9 @@ r.post("/", (req, res) => {
 
       const info = db
         .prepare(
-          "INSERT INTO orders (order_number, table_id, member_id, status, subtotal, discount, total, note, shift_id, payment_method, discount_type, discount_value, label, points_redeemed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO orders (order_number, table_id, member_id, status, subtotal, discount, total, note, shift_id, payment_method, discount_type, discount_value, label, points_redeemed, reward_id, reward_points_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
-        .run(orderNo, tableId, memberId, initialStatus, subtotal, discount, total, note || null, shiftId, payment, discount_type || null, discount_value || null, label || null, pointsRedeemed);
+        .run(orderNo, tableId, memberId, initialStatus, subtotal, discount, total, note || null, shiftId, payment, finalDiscountType || null, finalDiscountValue || null, label || null, pointsRedeemed, reward_id || null, rewardPointsCost);
       const orderId = info.lastInsertRowid;
       const ins = db.prepare(
         "INSERT INTO order_items (order_id, menu_item_id, name, price, qty, note, options_json) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -302,13 +362,15 @@ r.post("/", (req, res) => {
       for (const it of itemRows) {
         ins.run(orderId, it.id, it.name, it.price, it.qty, it.note, it.options_json);
       }
+      
+      db.prepare("INSERT INTO order_status_log (order_id, status) VALUES (?, ?)").run(orderId, initialStatus);
 
       // Audit log for redeem (paired with the deduct above)
-      if (pointsRedeemed > 0) {
+      if (totalPointsToDeduct > 0) {
         const bal = db.prepare("SELECT points FROM members WHERE id = ?").get(memberId).points;
         db.prepare(
           "INSERT INTO loyalty_transactions (member_id, order_id, points_delta, balance_after, reason) VALUES (?, ?, ?, ?, ?)"
-        ).run(memberId, orderId, -pointsRedeemed, bal, "redeem:order");
+        ).run(memberId, orderId, -totalPointsToDeduct, bal, "redeem:order");
       }
 
       if (tableId && !hold) {
@@ -319,6 +381,9 @@ r.post("/", (req, res) => {
 
     const created = loadOrder(result);
     res.json(created);
+
+    // Broadcast event via SSE
+    sendSSE("order", { id: created.id, order_number: created.order_number, table_number: created.table_number, label: created.label, total: created.total });
 
     // Auto-print kitchen + bar tickets — fire-and-forget so a printer
     // outage never blocks order creation. Skipped for:
@@ -373,13 +438,52 @@ function recalcTotals(orderId) {
     .all(orderId);
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
   const o = db
-    .prepare("SELECT discount_type, discount_value FROM orders WHERE id = ?")
+    .prepare("SELECT discount_type, discount_value, points_redeemed FROM orders WHERE id = ?")
     .get(orderId);
   const discount = computeDiscount(subtotal, o?.discount_type, Number(o?.discount_value) || 0);
-  const total = Math.max(0, subtotal - discount);
+  const afterDiscount = Math.max(0, subtotal - discount);
+  const pointsRedeemed = o?.points_redeemed || 0;
+  const net = Math.max(0, afterDiscount - pointsRedeemed);
+
+  const settingsRows = db.prepare("SELECT key, value FROM settings WHERE key IN ('service_charge_rate', 'vat_rate', 'vat_inclusive', 'rounding_rule')").all();
+  const settings = Object.fromEntries(settingsRows.map(r => [r.key, r.value]));
+  
+  const scRate = Number(settings.service_charge_rate) || 0;
+  const vRate = Number(settings.vat_rate) || 0;
+  const vatInclusive = settings.vat_inclusive === "1";
+  const roundingRule = settings.rounding_rule || "none";
+
+  let scAmt = 0;
+  if (scRate > 0) {
+    scAmt = Math.round((net * scRate) / 100);
+  }
+  const baseForVat = net + scAmt;
+  let vatAmt = 0;
+  let total = baseForVat;
+
+  if (vRate > 0) {
+    if (vatInclusive) {
+      vatAmt = Math.round((baseForVat * vRate) / (100 + vRate));
+      total = baseForVat;
+    } else {
+      vatAmt = Math.round((baseForVat * vRate) / 100);
+      total = baseForVat + vatAmt;
+    }
+  }
+
+  if (roundingRule === "floor") {
+    total = Math.floor(total);
+  } else if (roundingRule === "ceil") {
+    total = Math.ceil(total);
+  } else if (roundingRule === "nearest_25") {
+    total = Math.round(total * 4) / 4;
+  } else {
+    total = Math.round(total);
+  }
+
   db.prepare(
-    "UPDATE orders SET subtotal = ?, discount = ?, total = ? WHERE id = ?"
-  ).run(subtotal, discount, total, orderId);
+    "UPDATE orders SET subtotal = ?, discount = ?, total = ?, service_charge_amount = ?, vat_amount = ? WHERE id = ?"
+  ).run(subtotal, discount, total, scAmt, vatAmt, orderId);
   return { subtotal, discount, total };
 }
 
@@ -594,19 +698,30 @@ function deductIngredients(orderId) {
   const logMove = db.prepare(
     "INSERT INTO stock_movements (ingredient_id, delta, reason, ref_order_id) VALUES (?, ?, ?, ?)"
   );
+  const checkThreshold = db.prepare("SELECT name, quantity, threshold, unit FROM ingredients WHERE id = ?");
+  const notified = new Set();
+
   for (const it of items) {
     const recipe = recipeStmt.all(it.menu_item_id);
     for (const r of recipe) {
       const used = r.qty * it.qty;
       updIng.run(used, r.ingredient_id);
       logMove.run(r.ingredient_id, -used, "ตัดสต็อกจากออเดอร์", orderId);
+      
+      if (!notified.has(r.ingredient_id)) {
+        notified.add(r.ingredient_id);
+        const ing = checkThreshold.get(r.ingredient_id);
+        if (ing && ing.threshold > 0 && ing.quantity <= ing.threshold) {
+          sendLineNotify(`⚠️ วัตถุดิบใกล้หมด!\n\n${ing.name} เหลือเพียง ${ing.quantity.toFixed(2)} ${ing.unit} (ต่ำกว่าจุดสั่งซื้อที่ ${ing.threshold} ${ing.unit})`);
+        }
+      }
     }
   }
 }
 
 r.patch("/:id/status", adminRequired, (req, res) => {
   const id = Number(req.params.id);
-  const { status, payment_method } = req.body || {};
+  const { status, payment_method, cancel_reason } = req.body || {};
   if (!status) return res.status(400).json({ error: "status required" });
   const valid = ["รอรับ", "กำลังทำ", "เสิร์ฟแล้ว", "เสร็จสิ้น", "ยกเลิก", "พักบิล"];
   if (!valid.includes(status))
@@ -618,12 +733,25 @@ r.patch("/:id/status", adminRequired, (req, res) => {
   db.transaction(() => {
     const sets = ["status = ?"];
     const vals = [status];
-    if (payment_method && ["cash", "qr", "card", "other"].includes(payment_method)) {
+    if (payment_method && ["cash", "qr", "card", "other", "split"].includes(payment_method)) {
       sets.push("payment_method = ?");
       vals.push(payment_method);
     }
+    if (req.body && req.body.split_payments) {
+      sets.push("split_payments = ?");
+      vals.push(JSON.stringify(req.body.split_payments));
+    }
     vals.push(id);
     db.prepare(`UPDATE orders SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+    
+    // Log status change
+    db.prepare("INSERT INTO order_status_log (order_id, status) VALUES (?, ?)").run(id, status);
+
+    if (status === "ยกเลิก" && cancel_reason) {
+      db.prepare(
+        "UPDATE orders SET note = CASE WHEN note IS NULL OR note = '' THEN ? ELSE note || ' | ' || ? END WHERE id = ?"
+      ).run(`[ยกเลิก: ${cancel_reason}]`, `[ยกเลิก: ${cancel_reason}]`, id);
+    }
 
     if (status === "เสร็จสิ้น" && existing.status !== "เสร็จสิ้น") {
       const o = db.prepare("SELECT table_id, member_id, total FROM orders WHERE id = ?").get(id);
@@ -634,7 +762,8 @@ r.patch("/:id/status", adminRequired, (req, res) => {
         rotateTableToken(db, o.table_id);
       }
       if (o?.member_id) {
-        const pts = db
+        // Calculate base points from items
+        const basePts = db
           .prepare(
             `SELECT COALESCE(SUM(mi.points * oi.qty), 0) AS pts
              FROM order_items oi
@@ -642,9 +771,35 @@ r.patch("/:id/status", adminRequired, (req, res) => {
              WHERE oi.order_id = ?`
           )
           .get(id).pts;
-        db.prepare(
-          "UPDATE members SET points = points + ?, spending = spending + ?, visits = visits + 1 WHERE id = ?"
-        ).run(pts, o.total, o.member_id);
+
+        // Get member info (tier multiplier and spending)
+        const memberInfo = db
+          .prepare(
+            `SELECT m.spending, t.points_multiplier
+             FROM members m
+             LEFT JOIN member_tiers t ON t.id = m.tier_id
+             WHERE m.id = ?`
+          )
+          .get(o.member_id);
+
+        const multiplier = memberInfo?.points_multiplier || 1.0;
+        const pts = Math.floor(basePts * multiplier);
+        const newSpending = (memberInfo?.spending || 0) + o.total;
+
+        // Determine if they qualify for a higher tier
+        const higherTier = db
+          .prepare("SELECT id FROM member_tiers WHERE min_spending <= ? ORDER BY min_spending DESC LIMIT 1")
+          .get(newSpending);
+
+        if (higherTier) {
+          db.prepare(
+            "UPDATE members SET points = points + ?, spending = spending + ?, visits = visits + 1, tier_id = ? WHERE id = ?"
+          ).run(pts, o.total, higherTier.id, o.member_id);
+        } else {
+          db.prepare(
+            "UPDATE members SET points = points + ?, spending = spending + ?, visits = visits + 1 WHERE id = ?"
+          ).run(pts, o.total, o.member_id);
+        }
       }
       deductIngredients(id);
     }
@@ -656,16 +811,17 @@ r.patch("/:id/status", adminRequired, (req, res) => {
     // those represent goods that were consumed (sunk cost). Documented limitation.
     if (status === "ยกเลิก" && existing.status !== "ยกเลิก") {
       const o = db
-        .prepare("SELECT member_id, points_redeemed FROM orders WHERE id = ?")
+        .prepare("SELECT member_id, points_redeemed, reward_points_cost FROM orders WHERE id = ?")
         .get(id);
-      if (o?.member_id && o?.points_redeemed > 0) {
+      const refundPoints = (o?.points_redeemed || 0) + (o?.reward_points_cost || 0);
+      if (o?.member_id && refundPoints > 0) {
         db.prepare("UPDATE members SET points = points + ? WHERE id = ?")
-          .run(o.points_redeemed, o.member_id);
+          .run(refundPoints, o.member_id);
         const bal = db.prepare("SELECT points FROM members WHERE id = ?").get(o.member_id).points;
         db.prepare(
           "INSERT INTO loyalty_transactions (member_id, order_id, points_delta, balance_after, reason) VALUES (?, ?, ?, ?, ?)"
-        ).run(o.member_id, id, o.points_redeemed, bal, "refund:cancel");
-        db.prepare("UPDATE orders SET points_redeemed = 0 WHERE id = ?").run(id);
+        ).run(o.member_id, id, refundPoints, bal, "refund:cancel");
+        db.prepare("UPDATE orders SET points_redeemed = 0, reward_points_cost = 0 WHERE id = ?").run(id);
       }
     }
   })();
@@ -676,6 +832,9 @@ r.patch("/:id/status", adminRequired, (req, res) => {
       .then(() => syncOrderToLoyverse(id))
       .catch((e) => console.error("[loyverse] sync trigger failed:", e));
   }
+
+  const updated = loadOrder(id);
+  sendSSE("order", { id: updated.id, order_number: updated.order_number, table_number: updated.table_number, label: updated.label, total: updated.total, status: updated.status });
 
   res.json({ ok: true });
 });
@@ -725,11 +884,42 @@ r.get("/stats/dashboard", adminRequired, (req, res) => {
     )
     .all();
 
+  const kpiStats = db
+    .prepare(
+      `WITH log_summary AS (
+         SELECT order_id, 
+                MIN(CASE WHEN status = 'รอรับ' THEN created_at END) as t_start,
+                MAX(CASE WHEN status = 'เสร็จสิ้น' THEN created_at END) as t_end,
+                MIN(CASE WHEN status = 'กำลังทำ' THEN created_at END) as t_prep,
+                MIN(CASE WHEN status IN ('เสิร์ฟแล้ว', 'เสร็จสิ้น') THEN created_at END) as t_serve
+         FROM order_status_log
+         GROUP BY order_id
+       )
+       SELECT 
+         ROUND(AVG((julianday(t_end) - julianday(t_start)) * 24 * 60), 1) AS avg_ticket_time_mins,
+         ROUND(AVG(CASE WHEN t_prep IS NOT NULL AND t_serve > t_prep THEN (julianday(t_serve) - julianday(t_prep)) * 24 * 60 ELSE NULL END), 1) AS avg_prep_time_mins
+       FROM orders o
+       JOIN log_summary ls ON ls.order_id = o.id
+       WHERE date(o.created_at) = date('now') AND o.status = 'เสร็จสิ้น'`
+    )
+    .get();
+
+  const byMargin = db
+    .prepare(
+      `SELECT mi.name, COALESCE(SUM((oi.price - COALESCE(mi.cost, 0)) * oi.qty), 0) AS margin
+       FROM order_items oi
+       JOIN menu_items mi ON mi.id = oi.menu_item_id
+       WHERE oi.order_id IN (SELECT id FROM orders WHERE date(created_at) = date('now') AND status = 'เสร็จสิ้น')
+       GROUP BY mi.id, mi.name ORDER BY margin DESC LIMIT 5`
+    )
+    .all();
+
   res.json({
-    stats: { ...today, avgPerOrder: avg },
+    stats: { ...today, avgPerOrder: avg, ...kpiStats },
     hourlyRevenue,
     popular,
     byCategory,
+    byMargin,
   });
 });
 

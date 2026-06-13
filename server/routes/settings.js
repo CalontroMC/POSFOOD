@@ -1,6 +1,6 @@
 import { Router } from "express";
 import db from "../db.js";
-import { adminRequired } from "../middleware/auth.js";
+import { adminRequired, adminOnly } from "../middleware/auth.js";
 import { hashPin } from "../lib/hash.js";
 
 const r = Router();
@@ -9,13 +9,14 @@ r.get("/", (req, res) => {
   const rows = db.prepare("SELECT key, value FROM settings").all();
   const obj = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   delete obj.admin_pin;
+  delete obj.manager_pin;
   // อย่าส่ง token ออก client — แทนด้วย flag ว่ามีค่าตั้งไว้แล้วหรือยัง
   obj.loyverse_token_set = obj.loyverse_token ? "1" : "0";
   delete obj.loyverse_token;
   res.json(obj);
 });
 
-r.put("/", adminRequired, (req, res) => {
+r.put("/", adminOnly, (req, res) => {
   const body = req.body || {};
   const ins = db.prepare(
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
@@ -27,7 +28,7 @@ r.put("/", adminRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-r.put("/pin", adminRequired, (req, res) => {
+r.put("/pin", adminOnly, (req, res) => {
   const { pin } = req.body || {};
   if (!/^\d{4}$/.test(String(pin || "")))
     return res.status(400).json({ error: "pin must be 4 digits" });
@@ -37,20 +38,21 @@ r.put("/pin", adminRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-// Factory reset — wipe operational + (optionally) master data
-// Body: {
-//   confirm: 'ลบทั้งหมด',  // must match exactly
-//   scopes: {
-//     transactions: true,   // orders, items, shifts, drops, stock movements, clock events
-//     resetMemberStats: true,  // members.points/spending/visits → 0 (keep records)
-//     menu: false,          // delete menu items + categories + option groups + options + recipes
-//     tables: false,        // delete tables
-//     members: false,       // delete members
-//     employees: false,     // delete employees
-//     ingredients: false,   // delete ingredients
-//   }
-// }
-r.post("/factory-reset", adminRequired, (req, res) => {
+r.put("/manager-pin", adminOnly, (req, res) => {
+  const { pin } = req.body || {};
+  if (!pin) {
+    db.prepare("DELETE FROM settings WHERE key = 'manager_pin'").run();
+    return res.json({ ok: true });
+  }
+  if (!/^\d{4}$/.test(String(pin || "")))
+    return res.status(400).json({ error: "pin must be 4 digits" });
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES ('manager_pin', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(hashPin(pin));
+  res.json({ ok: true });
+});
+
+r.post("/factory-reset", adminOnly, (req, res) => {
   const { confirm, scopes } = req.body || {};
   if (confirm !== "ลบทั้งหมด") {
     return res.status(400).json({ error: "ต้องพิมพ์ 'ลบทั้งหมด' เพื่อยืนยัน" });

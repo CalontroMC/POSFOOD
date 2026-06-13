@@ -157,6 +157,71 @@ export default function useOrderNotifications({ pollMs = 5000 } = {}) {
     };
   }, [enabled, pollMs]);
 
+  // Server-Sent Events for instant push
+  useEffect(() => {
+    if (!enabled) return;
+    const sse = new EventSource("/api/events");
+
+    sse.addEventListener("order", (e) => {
+      try {
+        const o = JSON.parse(e.data);
+        if (!o.id) return;
+        const lastSeen = lastIdRef.current;
+        if (o.id > lastSeen) {
+          lastIdRef.current = o.id;
+          localStorage.setItem(KEY_LAST_ID, String(o.id));
+          const now = Date.now();
+          setToasts((arr) => [
+            ...arr,
+            {
+              key: `order-${o.id}`,
+              id: o.id,
+              type: "order",
+              order_number: o.order_number,
+              table_number: o.table_number,
+              label: o.label,
+              total: o.total,
+              ts: now,
+            },
+          ]);
+          playBeep();
+          tryBrowserNotification("order", 1, o);
+        }
+      } catch (err) {}
+    });
+
+    sse.addEventListener("bill", (e) => {
+      try {
+        const b = JSON.parse(e.data);
+        if (!b.id) return;
+        const lastSeen = lastBillIdRef.current;
+        if (b.id > lastSeen) {
+          lastBillIdRef.current = b.id;
+          localStorage.setItem(KEY_LAST_BILL_ID, String(b.id));
+          const now = Date.now();
+          setToasts((arr) => [
+            ...arr,
+            {
+              key: `bill-${b.id}`,
+              id: b.id,
+              type: "bill",
+              table_number: b.table_number,
+              status: b.status,
+              ts: now,
+            },
+          ]);
+          playBeep();
+          playBeep(); // double beep for bill
+          tryBrowserNotification("bill", 1, b);
+        }
+      } catch (err) {}
+    });
+
+    return () => {
+      sse.close();
+    };
+  }, [enabled]);
+
   // Auto-dismiss toasts after 10s (bills) / 8s (orders)
   useEffect(() => {
     if (toasts.length === 0) return;

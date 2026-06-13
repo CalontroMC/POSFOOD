@@ -62,6 +62,25 @@ export function initSchema() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS member_tiers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      min_spending INTEGER NOT NULL DEFAULT 0,
+      discount_percent INTEGER NOT NULL DEFAULT 0,
+      points_multiplier REAL NOT NULL DEFAULT 1.0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS rewards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      points_cost INTEGER NOT NULL,
+      discount_value INTEGER,
+      menu_item_id INTEGER REFERENCES menu_items(id) ON DELETE SET NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS members (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -69,6 +88,9 @@ export function initSchema() {
       points INTEGER NOT NULL DEFAULT 0,
       spending INTEGER NOT NULL DEFAULT 0,
       visits INTEGER NOT NULL DEFAULT 0,
+      tier_id INTEGER REFERENCES member_tiers(id) ON DELETE SET NULL,
+      dob TEXT,
+      tags TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -104,6 +126,14 @@ export function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 
+    CREATE TABLE IF NOT EXISTS order_status_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_status_log_order ON order_status_log(order_id);
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -114,6 +144,7 @@ export function initSchema() {
       name TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'พนักงาน',
       phone TEXT,
+      pin TEXT,
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -188,9 +219,17 @@ export function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_clock_emp ON clock_events(employee_id);
   `);
 
+  ensureColumn("admin_sessions", "role", "TEXT NOT NULL DEFAULT 'admin'");
+  ensureColumn("admin_sessions", "employee_id", "INTEGER");
+  ensureColumn("admin_sessions", "employee_name", "TEXT");
+  
   // Discount columns on orders + order_items
   ensureColumn("orders", "discount_type", "TEXT");
-  ensureColumn("orders", "discount_value", "INTEGER");
+  ensureColumn("orders", "discount_value", "TEXT");
+  ensureColumn("orders", "label", "TEXT");
+  ensureColumn("orders", "points_redeemed", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("orders", "reward_id", "INTEGER REFERENCES rewards(id) ON DELETE SET NULL");
+  ensureColumn("orders", "reward_points_cost", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("order_items", "discount_value", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("order_items", "discount_type", "TEXT");
   // Customer demographics
@@ -201,6 +240,8 @@ export function initSchema() {
   ensureColumn("menu_items", "kitchen", "INTEGER NOT NULL DEFAULT 1");
   // Custom label for held / take-away bills
   ensureColumn("orders", "label", "TEXT");
+  // Per-employee PIN
+  ensureColumn("employees", "pin", "TEXT");
 
   // Bill requests (customer presses "Call for bill" from /order page)
   db.exec(`
@@ -226,11 +267,17 @@ export function initSchema() {
 
   // Idempotent ALTER for older DBs
   ensureColumn("menu_items", "description", "TEXT");
+  ensureColumn("menu_items", "cost", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("order_items", "options_json", "TEXT");
   ensureColumn("orders", "shift_id", "INTEGER REFERENCES shifts(id) ON DELETE SET NULL");
   ensureColumn("orders", "payment_method", "TEXT");
   // Loyalty: how many points were redeemed at checkout (1 pt = 1 baht discount)
   ensureColumn("orders", "points_redeemed", "INTEGER NOT NULL DEFAULT 0");
+
+  // Modern POS features
+  ensureColumn("orders", "service_charge_amount", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("orders", "vat_amount", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("orders", "split_payments", "TEXT");
 
   // --- v6: Loyalty/LINE foundation (extend members, don't duplicate) ---
   ensureColumn("members", "line_user_id", "TEXT");
@@ -374,6 +421,10 @@ export function seedIfEmpty() {
     backfill.run("vat_inclusive", "0");
     backfill.run("promptpay_id", "");
   }
+
+  ensureColumn("members", "tier_id", "INTEGER REFERENCES member_tiers(id) ON DELETE SET NULL");
+  ensureColumn("members", "dob", "TEXT");
+  ensureColumn("members", "tags", "TEXT");
 }
 
 export function ensureDb() {

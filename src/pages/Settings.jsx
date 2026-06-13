@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Store, Key, Save, LogOut, Volume2, VolumeX, AlertTriangle, Trash2, Play, Printer, Search, CheckCircle2, Wifi, Smartphone, Percent } from "lucide-react";
+import { Store, Key, Save, LogOut, Volume2, VolumeX, AlertTriangle, Trash2, Play, Printer, Search, CheckCircle2, Wifi, Smartphone, Percent, CreditCard, Image as ImageIcon, Bell, Sparkles } from "lucide-react";
 import PageHeader from "../components/PageHeader.jsx";
 import SectionTabs, { SECTIONS } from "../components/SectionTabs.jsx";
 import Toggle from "../components/Toggle.jsx";
@@ -22,15 +22,25 @@ export default function Settings() {
     store_phone: "",
     store_tax_id: "",
     store_address: "",
+    store_logo: "",
     receipt_footer: "",
     // Check-bill tax / service charge / PromptPay
     service_charge_rate: "0",
     vat_rate: "0",
     vat_inclusive: "0",
     promptpay_id: "",
+    rounding_rule: "none",
+    payment_grab: "0",
+    payment_lineman: "0",
+    payment_foodpanda: "0",
+    payment_shopee: "0",
+    payment_transfer: "0",
     printer_ip: "",
+    printer_kitchen_ip: "",
+    printer_bar_ip: "",
     printer_port: "9100",
     printer_name: "",
+    printer_width: "58",
     printer_enabled: "0",
     printer_type: "network", // 'rawbt' | 'browser' | 'network' | 'local'
     auto_print: "1", // auto-print kitchen+bar tickets on submit, receipt on close
@@ -48,9 +58,14 @@ export default function Settings() {
     loyverse_pt_qr: "",
     loyverse_pt_card: "",
     loyverse_pt_other: "",
+    // LINE Notify
+    line_notify_token: "",
+    // AI
+    gemini_api_key: "",
   });
   const [showPwd, setShowPwd] = useState(false);
   const [pin, setPin] = useState({ a: "", b: "" });
+  const [managerPin, setManagerPin] = useState({ a: "", b: "" });
   const [volume, setVolume] = useState(getNotifVolume());
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -87,12 +102,53 @@ export default function Settings() {
         await apiPut("/settings/pin", { pin: pin.a });
         setPin({ a: "", b: "" });
       }
+      if (managerPin.a || managerPin.b) {
+        if (managerPin.a !== managerPin.b) {
+          setErr("Manager PIN ใหม่กับยืนยันไม่ตรงกัน");
+          return;
+        }
+        if (managerPin.a && !/^\d{4}$/.test(managerPin.a)) {
+          setErr("Manager PIN ต้องเป็นตัวเลข 4 หลัก");
+          return;
+        }
+        await apiPut("/settings/manager-pin", { pin: managerPin.a });
+        setManagerPin({ a: "", b: "" });
+      }
       setMsg("บันทึกแล้ว");
       setTimeout(() => setMsg(""), 2500);
     } catch (e) {
       setErr(e.message);
     }
   };
+
+  const testLineNotify = async () => {
+    if (!form.line_notify_token) return;
+    try {
+      await apiPost("/settings/line-test", { token: form.line_notify_token });
+      setMsg("ทดสอบส่งข้อความ LINE สำเร็จ");
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  const testAiConnection = async () => {
+    if (!form.gemini_api_key) {
+      setErr("กรุณาใส่ API Key ก่อนทดสอบ");
+      return;
+    }
+    setMsg("กำลังทดสอบการเชื่อมต่อ AI...");
+    setErr("");
+    try {
+      const res = await apiPost("/ai-assistant/test", { apiKey: form.gemini_api_key });
+      if (res.ok) {
+        setMsg("✅ เชื่อมต่อ AI สำเร็จ! (API Key ใช้งานได้)");
+      }
+    } catch (e) {
+      setErr(`❌ การเชื่อมต่อล้มเหลว: ${e.message}`);
+    }
+  };
+
+  const sectionActive = (id) => activeSection === id;
 
   return (
     <div className="px-4 py-6 md:px-6">
@@ -128,6 +184,58 @@ export default function Settings() {
             <Field label="ที่อยู่">
               <input className="input" value={form.store_address || ""} onChange={update("store_address")} />
             </Field>
+            <div className="md:col-span-2">
+              <Field label="โลโก้ร้าน (พิมพ์ใบเสร็จผ่าน Browser)">
+                <div className="flex items-center gap-4">
+                  {form.store_logo && (
+                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-gray-200">
+                      <img src={form.store_logo} alt="Logo" className="h-full w-full object-contain" />
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, store_logo: "" })}
+                        className="absolute right-0 top-0 rounded-bl-xl bg-white/80 p-1 text-red-500 hover:bg-white"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <label className="btn-secondary cursor-pointer inline-flex items-center gap-2">
+                      <ImageIcon size={16} /> อัปโหลดโลโก้
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files[0];
+                          if (!file) return;
+                          const formData = new FormData();
+                          formData.append("file", file);
+                          try {
+                            const res = await fetch("/api/uploads/image", {
+                              method: "POST",
+                              headers: {
+                                Authorization: `Bearer ${localStorage.getItem("foodpos_admin_token")}`,
+                              },
+                              body: formData,
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error);
+                            setForm({ ...form, store_logo: data.url });
+                          } catch (err) {
+                            alert(err.message);
+                          }
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <p className="mt-1 text-xs text-gray-500">
+                      แนะนำภาพสี่เหลี่ยมจัตุรัสหรือผืนผ้าขนาดเล็ก (จะแสดงบนหัวใบเสร็จ)
+                    </p>
+                  </div>
+                </div>
+              </Field>
+            </div>
             <div className="md:col-span-2">
               <Field label="ข้อความท้ายบิล">
                 <textarea
@@ -187,6 +295,102 @@ export default function Settings() {
                 onChange={update("promptpay_id")}
               />
             </Field>
+            <Field label="กฎการปัดเศษสตางค์">
+              <select className="input" value={form.rounding_rule || "none"} onChange={update("rounding_rule")}>
+                <option value="none">ไม่ปัดเศษ</option>
+                <option value="floor">ปัดเศษทิ้ง (Floor) เช่น 10.75 {'>'} 10</option>
+                <option value="ceil">ปัดเศษขึ้น (Ceil) เช่น 10.25 {'>'} 11</option>
+                <option value="nearest_25">ปัดให้ลงตัวที่ 0.25 (สลึง)</option>
+              </select>
+            </Field>
+          </div>
+        </section>
+
+        <section className="card p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-100 text-green-600">
+              <Bell size={18} />
+            </div>
+            <h2 className="text-base font-bold text-gray-900">การแจ้งเตือน (LINE Notify)</h2>
+          </div>
+          <p className="mb-4 text-sm text-gray-500">
+            ระบบจะส่งข้อความแจ้งเตือนเมื่อวัตถุดิบใกล้หมด (ต่ำกว่าจุดสั่งซื้อ) เข้ากลุ่มไลน์
+          </p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="LINE Notify Token">
+              <input
+                className="input"
+                placeholder="เช่น ABCdef123GHI..."
+                value={form.line_notify_token || ""}
+                onChange={update("line_notify_token")}
+              />
+            </Field>
+          </div>
+        </section>
+
+        <section className="card p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-purple-600">
+              <Sparkles size={18} />
+            </div>
+            <h2 className="text-base font-bold text-gray-900">FoodPOS AI (Gemini)</h2>
+          </div>
+          <p className="mb-4 text-sm text-gray-500">
+            ใช้งานแชท AI ในหน้ารายงาน จำเป็นต้องใช้ API Key จาก Google AI Studio (ฟรี)
+          </p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Gemini API Key">
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1"
+                  type={showPwd ? "text" : "password"}
+                  placeholder="AIzaSy..."
+                  value={form.gemini_api_key || ""}
+                  onChange={update("gemini_api_key")}
+                />
+                <button
+                  type="button"
+                  onClick={testAiConnection}
+                  className="btn btn-secondary whitespace-nowrap"
+                >
+                  ทดสอบการเชื่อมต่อ
+                </button>
+              </div>
+            </Field>
+          </div>
+        </section>
+
+        <section className="card p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-100 text-brand-orange">
+              <CreditCard size={18} />
+            </div>
+            <h2 className="text-base font-bold text-gray-900">ช่องทางการรับเงินเสริม (Delivery / โอน)</h2>
+          </div>
+          <p className="mb-4 text-sm text-gray-500">
+            เปิดใช้เพื่อเพิ่มปุ่มในหน้าเช็คบิล สำหรับบันทึกยอดที่มาจาก Delivery หรือโอน
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.payment_grab === "1"} onChange={(e) => setForm({ ...form, payment_grab: e.target.checked ? "1" : "0" })} className="h-4 w-4 rounded border-gray-300 text-brand-orange focus:ring-brand-orange" />
+              <span className="text-sm font-medium text-gray-700">GrabFood</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.payment_lineman === "1"} onChange={(e) => setForm({ ...form, payment_lineman: e.target.checked ? "1" : "0" })} className="h-4 w-4 rounded border-gray-300 text-brand-orange focus:ring-brand-orange" />
+              <span className="text-sm font-medium text-gray-700">LINE MAN</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.payment_foodpanda === "1"} onChange={(e) => setForm({ ...form, payment_foodpanda: e.target.checked ? "1" : "0" })} className="h-4 w-4 rounded border-gray-300 text-brand-orange focus:ring-brand-orange" />
+              <span className="text-sm font-medium text-gray-700">Foodpanda</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.payment_shopee === "1"} onChange={(e) => setForm({ ...form, payment_shopee: e.target.checked ? "1" : "0" })} className="h-4 w-4 rounded border-gray-300 text-brand-orange focus:ring-brand-orange" />
+              <span className="text-sm font-medium text-gray-700">ShopeeFood</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.payment_transfer === "1"} onChange={(e) => setForm({ ...form, payment_transfer: e.target.checked ? "1" : "0" })} className="h-4 w-4 rounded border-gray-300 text-brand-orange focus:ring-brand-orange" />
+              <span className="text-sm font-medium text-gray-700">โอนเงินเข้าบัญชี</span>
+            </label>
           </div>
         </section>
 
@@ -196,14 +400,14 @@ export default function Settings() {
               <Key size={18} />
             </div>
             <h2 className="text-base font-bold text-gray-900">
-              เปลี่ยนรหัส PIN (4 หลัก)
+              จัดการรหัส PIN (4 หลัก)
             </h2>
           </div>
           <p className="mb-4 text-sm text-gray-500">
-            เว้นว่างได้หากไม่ต้องการเปลี่ยน
+            เว้นว่างได้หากไม่ต้องการเปลี่ยน (Admin PIN สำหรับเจ้าของร้าน / Manager PIN สำหรับผู้จัดการ)
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="PIN ใหม่">
+            <Field label="Admin PIN ใหม่">
               <input
                 inputMode="numeric"
                 maxLength={4}
@@ -212,13 +416,33 @@ export default function Settings() {
                 onChange={(e) => setPin({ ...pin, a: e.target.value.replace(/\D/g, "") })}
               />
             </Field>
-            <Field label="ยืนยัน PIN">
+            <Field label="ยืนยัน Admin PIN">
               <input
                 inputMode="numeric"
                 maxLength={4}
                 className="input"
                 value={pin.b}
                 onChange={(e) => setPin({ ...pin, b: e.target.value.replace(/\D/g, "") })}
+              />
+            </Field>
+            <Field label="Manager PIN ใหม่">
+              <input
+                inputMode="numeric"
+                maxLength={4}
+                className="input"
+                placeholder="กรอกเพื่อตั้งรหัส"
+                value={managerPin.a}
+                onChange={(e) => setManagerPin({ ...managerPin, a: e.target.value.replace(/\D/g, "") })}
+              />
+            </Field>
+            <Field label="ยืนยัน Manager PIN">
+              <input
+                inputMode="numeric"
+                maxLength={4}
+                className="input"
+                placeholder="เว้นว่างเพื่อลบรหัสผ่าน"
+                value={managerPin.b}
+                onChange={(e) => setManagerPin({ ...managerPin, b: e.target.value.replace(/\D/g, "") })}
               />
             </Field>
           </div>
@@ -398,6 +622,31 @@ export default function Settings() {
           setForm={setForm}
           onSavedToast={(t) => { setMsg(t); setTimeout(() => setMsg(""), 2500); }}
         />
+
+        <section className="card mb-6 p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-600">
+              <Sparkles size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">FoodPOS AI (Gemini)</h2>
+              <p className="text-xs text-gray-500">ตั้งค่า AI Assistant สำหรับวิเคราะห์ข้อมูลร้าน</p>
+            </div>
+          </div>
+          <Field label="Gemini API Key">
+            <input
+              type="password"
+              value={form.gemini_api_key || ""}
+              onChange={update("gemini_api_key")}
+              placeholder="AIzaSy..."
+              className="input font-mono"
+              autoComplete="off"
+            />
+            <p className="mt-1 text-xs text-gray-400">
+              รับ API Key ได้ฟรีที่ <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-brand-orange hover:underline">Google AI Studio</a>
+            </p>
+          </Field>
+        </section>
 
         <div className="flex items-center justify-end gap-3">
           {err && <p className="text-sm text-red-500">{err}</p>}
@@ -866,39 +1115,78 @@ function PrinterSection({ form, setForm, onSavedToast }) {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
-          <div className="sm:col-span-5">
-            <Field label="IP เครื่องพิมพ์">
-              <input
-                value={form.printer_ip || ""}
-                onChange={setEvt("printer_ip")}
-                placeholder="192.168.1.50"
-                className="input font-mono"
-                disabled={!enabled}
-              />
-            </Field>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+            <div className="sm:col-span-4">
+              <Field label="IP เครื่องพิมพ์ใบเสร็จ">
+                <input
+                  value={form.printer_ip || ""}
+                  onChange={setEvt("printer_ip")}
+                  placeholder="192.168.1.50"
+                  className="input font-mono"
+                  disabled={!enabled}
+                />
+              </Field>
+            </div>
+            <div className="sm:col-span-4">
+              <Field label="IP เครื่องพิมพ์ครัว (Kitchen)">
+                <input
+                  value={form.printer_kitchen_ip || ""}
+                  onChange={setEvt("printer_kitchen_ip")}
+                  placeholder="192.168.1.51"
+                  className="input font-mono"
+                  disabled={!enabled}
+                />
+              </Field>
+            </div>
+            <div className="sm:col-span-4">
+              <Field label="IP เครื่องพิมพ์บาร์น้ำ (Bar)">
+                <input
+                  value={form.printer_bar_ip || ""}
+                  onChange={setEvt("printer_bar_ip")}
+                  placeholder="192.168.1.52"
+                  className="input font-mono"
+                  disabled={!enabled}
+                />
+              </Field>
+            </div>
           </div>
-          <div className="sm:col-span-3">
-            <Field label="Port">
-              <input
-                value={form.printer_port || "9100"}
-                onChange={setEvt("printer_port")}
-                placeholder="9100"
-                className="input font-mono"
-                disabled={!enabled}
-              />
-            </Field>
-          </div>
-          <div className="sm:col-span-4">
-            <Field label="ชื่อเรียก (ไม่บังคับ)">
-              <input
-                value={form.printer_name || ""}
-                onChange={setEvt("printer_name")}
-                placeholder="ครัว, หน้าร้าน..."
-                className="input"
-                disabled={!enabled}
-              />
-            </Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+            <div className="sm:col-span-4">
+              <Field label="Port">
+                <input
+                  value={form.printer_port || "9100"}
+                  onChange={setEvt("printer_port")}
+                  placeholder="9100"
+                  className="input font-mono"
+                  disabled={!enabled}
+                />
+              </Field>
+            </div>
+            <div className="sm:col-span-4">
+              <Field label="ชื่อเรียก (ไม่บังคับ)">
+                <input
+                  value={form.printer_name || ""}
+                  onChange={setEvt("printer_name")}
+                  placeholder="แคชเชียร์"
+                  className="input"
+                  disabled={!enabled}
+                />
+              </Field>
+            </div>
+            <div className="sm:col-span-4">
+              <Field label="ขนาดกระดาษ (ESC/POS Network)">
+                <select
+                  value={form.printer_width || "58"}
+                  onChange={setEvt("printer_width")}
+                  className="input"
+                  disabled={!enabled}
+                >
+                  <option value="58">58mm (เครื่องเล็ก)</option>
+                  <option value="80">80mm (เครื่องใหญ่)</option>
+                </select>
+              </Field>
+            </div>
           </div>
         </div>
       )}

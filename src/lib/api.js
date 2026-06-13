@@ -160,15 +160,15 @@ export async function cachedGet(path, opts) {
 }
 
 export const Auth = {
-  async login(pin) {
-    const { token } = await api("/auth/login", {
+  async login(pin, role, employeeId) {
+    const res = await api("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ pin }),
+      body: JSON.stringify({ pin, role, employee_id: employeeId }),
       auth: false,
       silent401: true,
     });
-    setToken(token);
-    return token;
+    setToken(res.token);
+    return res;
   },
   async logout() {
     try {
@@ -178,10 +178,10 @@ export const Auth = {
   },
   async me() {
     try {
-      const { authenticated } = await api("/auth/me", { silent401: true });
-      return authenticated;
+      const res = await api("/auth/me", { silent401: true });
+      return res; // { authenticated, role }
     } catch {
-      return false;
+      return { authenticated: false, role: null };
     }
   },
   hasToken() {

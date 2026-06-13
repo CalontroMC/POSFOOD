@@ -13,7 +13,9 @@ import {
   ChefHat,
   UtensilsCrossed,
   Coins,
+  LogOut,
 } from "lucide-react";
+import { useAuth } from "../auth/AuthContext.jsx";
 import useShiftStatus from "../lib/useShiftStatus.js";
 
 // Grouped nav — sub-features now live inside their parent page via SectionTabs:
@@ -33,12 +35,16 @@ const NAV = [
   { to: "/stock", label: "สต็อกวัตถุดิบ", Icon: Package },
   { to: "/barcodes", label: "พิมพ์บาร์โค้ด", Icon: QrCode },
   { to: "/members", label: "สมาชิก", Icon: User },
-  { to: "/settings", label: "ตั้งค่าร้าน", Icon: SettingsIcon },
+  { to: "/settings", label: "ตั้งค่าร้าน", Icon: SettingsIcon, adminOnly: true },
 ];
 
 
 export default function Sidebar({ collapsed, onToggle }) {
   const { shift } = useShiftStatus();
+  const { role, logout } = useAuth();
+  
+  const visibleNav = NAV.filter(n => !n.adminOnly || role === "admin");
+
   return (
     <aside
       className={`relative flex h-screen shrink-0 flex-col bg-brand-dark text-gray-300 transition-all duration-200 ${
@@ -97,7 +103,7 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
         <ul className="space-y-1">
-          {NAV.map(({ to, label, Icon }) => (
+          {visibleNav.map(({ to, label, Icon }) => (
             <li key={to}>
               <NavLink
                 to={to}
@@ -119,7 +125,17 @@ export default function Sidebar({ collapsed, onToggle }) {
         </ul>
       </nav>
 
-      <div className="border-t border-white/5 p-3">
+      <div className="border-t border-white/5 p-3 space-y-2">
+        <button
+          type="button"
+          onClick={logout}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-400 hover:bg-red-500/20 hover:text-red-300"
+          title="ออกจากระบบ"
+        >
+          <LogOut size={16} />
+          {!collapsed && <span>ออกจากระบบ</span>}
+        </button>
+
         <button
           type="button"
           onClick={onToggle}

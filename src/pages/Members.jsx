@@ -21,7 +21,14 @@ export default function Members() {
   const [editing, setEditing] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
 
-  const load = async () => setList(await apiGet("/members"));
+  const [tiers, setTiers] = useState([]);
+  const [stats, setStats] = useState(null);
+
+  const load = async () => {
+    setList(await apiGet("/members"));
+    setTiers(await apiGet("/members/tiers/list").catch(() => []));
+    setStats(await apiGet("/members/stats").catch(() => null));
+  };
   useEffect(() => {
     load();
   }, []);
@@ -42,13 +49,17 @@ export default function Members() {
   const save = async (e) => {
     e.preventDefault();
     try {
+      const payload = {
+        name: editing.name,
+        phone: editing.phone,
+        tier_id: editing.tier_id || null,
+        dob: editing.dob || null,
+        tags: editing.tags || null,
+      };
       if (editing.id) {
-        await apiPatch(`/members/${editing.id}`, {
-          name: editing.name,
-          phone: editing.phone,
-        });
+        await apiPatch(`/members/${editing.id}`, payload);
       } else {
-        await apiPost("/members", { name: editing.name, phone: editing.phone });
+        await apiPost("/members", payload);
       }
       setEditing(null);
       await load();
@@ -70,7 +81,7 @@ export default function Members() {
         subtitle="จัดการข้อมูลและแต้มสะสมของสมาชิก"
         actions={
           <button
-            onClick={() => setEditing({ id: null, name: "", phone: "" })}
+            onClick={() => setEditing({ id: null, name: "", phone: "", tier_id: "", dob: "", tags: "" })}
             className="btn-primary"
           >
             <Plus size={16} /> เพิ่มสมาชิก
@@ -82,14 +93,14 @@ export default function Members() {
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard
           label="สมาชิกทั้งหมด"
-          value={list.length}
+          value={stats?.total ?? list.length}
           Icon={Users}
           iconBg="bg-orange-100"
           iconColor="text-brand-orange"
         />
         <StatCard
-          label="ใช้งานอยู่"
-          value={list.length}
+          label="ซื้อล่าสุดเดือนนี้"
+          value={stats?.activeThisMonth ?? "-"}
           Icon={Activity}
           iconBg="bg-emerald-100"
           iconColor="text-emerald-600"
@@ -132,9 +143,16 @@ export default function Members() {
                     {m.name.charAt(0)}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-gray-900">
-                      {m.name}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-gray-900">
+                        {m.name}
+                      </p>
+                      {m.tier_name && (
+                        <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-800">
+                          {m.tier_name}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-400">{m.phone}</p>
                   </div>
                 </div>
@@ -190,6 +208,39 @@ export default function Members() {
                 onChange={(e) => setEditing({ ...editing, phone: e.target.value })}
                 className="input"
                 placeholder="0XX-XXX-XXXX"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">ระดับสมาชิก</label>
+              <select
+                value={editing.tier_id || ""}
+                onChange={(e) => setEditing({ ...editing, tier_id: e.target.value })}
+                className="input"
+              >
+                <option value="">ไม่มีระดับ</option>
+                {tiers.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">วันเกิด</label>
+              <input
+                type="date"
+                value={editing.dob || ""}
+                onChange={(e) => setEditing({ ...editing, dob: e.target.value })}
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">ป้ายกำกับ (Tags)</label>
+              <input
+                value={editing.tags || ""}
+                onChange={(e) => setEditing({ ...editing, tags: e.target.value })}
+                className="input"
+                placeholder="เช่น VIP, แพ้กุ้ง"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">

@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import db from "../db.js";
 
-export function issueToken() {
+export function issueToken(role = 'admin', employeeId = null, employeeName = null) {
   const t = crypto.randomBytes(24).toString("hex");
-  db.prepare("INSERT INTO admin_sessions (token) VALUES (?)").run(t);
+  db.prepare("INSERT INTO admin_sessions (token, role, employee_id, employee_name) VALUES (?, ?, ?, ?)").run(t, role, employeeId, employeeName);
   return t;
 }
 
@@ -13,15 +13,15 @@ export function revokeToken(t) {
 }
 
 export function isValidToken(t) {
-  if (!t) return false;
+  if (!t) return null;
   const row = db
-    .prepare("SELECT 1 FROM admin_sessions WHERE token = ?")
+    .prepare("SELECT role, employee_id, employee_name FROM admin_sessions WHERE token = ?")
     .get(t);
-  if (!row) return false;
+  if (!row) return null;
   db.prepare(
     "UPDATE admin_sessions SET last_used_at = datetime('now') WHERE token = ?"
   ).run(t);
-  return true;
+  return row;
 }
 
 export function revokeAllSessions() {
@@ -31,8 +31,20 @@ export function revokeAllSessions() {
 export function adminRequired(req, res, next) {
   const header = req.headers["authorization"] || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-  if (!token || !isValidToken(token)) {
+  const session = isValidToken(token);
+  console.log("[adminRequired] path:", req.path, "header:", header, "token:", token, "session:", session);
+  if (!session) {
     return res.status(401).json({ error: "unauthorized" });
   }
+  req.user = session; // { role: 'admin' | 'manager' }
   next();
+}
+
+export function adminOnly(req, res, next) {
+  adminRequired(req, res, () => {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({ error: "สำหรับเจ้าของร้านเท่านั้น (Admin Only)" });
+    }
+    next();
+  });
 }

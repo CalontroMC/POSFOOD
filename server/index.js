@@ -23,6 +23,9 @@ import printersRouter from "./routes/printers.js";
 import billRequestsRouter from "./routes/billRequests.js";
 import wifiRouter from "./routes/wifi.js";
 import loyverseRouter from "./routes/loyverse.js";
+import rewardsRouter from "./routes/rewards.js";
+import chatRouter from "./routes/chat.js";
+import { router as sseRouter } from "./lib/sse.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 ensureDb();
@@ -51,6 +54,9 @@ app.use("/api/printers", printersRouter);
 app.use("/api/bill-requests", billRequestsRouter);
 app.use("/api/wifi", wifiRouter);
 app.use("/api/loyverse", loyverseRouter);
+app.use("/api/events", sseRouter);
+app.use("/api/rewards", rewardsRouter);
+app.use("/api/ai-assistant", chatRouter);
 
 app.use(
   "/uploads",

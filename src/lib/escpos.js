@@ -283,6 +283,7 @@ export function buildFinalReceipt({
   serviceChargeRate = 0,
   vatRate = 0,
   vatInclusive = false,
+  roundingRule = "none",
   promptPayId = "",
   paid = null,
   change = null,
@@ -391,12 +392,34 @@ export function buildFinalReceipt({
     }
   }
 
+  if (roundingRule === "floor") {
+    grandTotal = Math.floor(grandTotal);
+  } else if (roundingRule === "ceil") {
+    grandTotal = Math.ceil(grandTotal);
+  } else if (roundingRule === "nearest_25") {
+    grandTotal = Math.round(grandTotal * 4) / 4;
+  } else {
+    grandTotal = Math.round(grandTotal);
+  }
+
   // ── Grand total ──
   b.hr("=");
   amountRow("ยอดรวมทั้งสิ้น (GRAND TOTAL)", grandTotal, { big: true });
   b.hr("=");
-  if (paid != null) amountRow("รับเงิน (Paid)", paid);
-  if (change != null) amountRow("เงินทอน (Change)", change);
+  if (order.split_payments) {
+    const sp = typeof order.split_payments === "string" ? JSON.parse(order.split_payments) : order.split_payments;
+    b.align(1).bold(true).line("-- แบ่งจ่าย / SPLIT PAYMENT --").bold(false).align(0);
+    if (sp.cash) amountRow("เงินสด (Cash)", sp.cash);
+    if (sp.qr) amountRow("โอน/QR (Transfer)", sp.qr);
+    if (sp.card) amountRow("บัตรเครดิต (Card)", sp.card);
+  } else if (order.payment_method === "qr") {
+    amountRow("รับเงิน (Paid by QR)", grandTotal);
+  } else if (order.payment_method === "card") {
+    amountRow("รับเงิน (Paid by Card)", grandTotal);
+  } else if (paid != null) {
+    amountRow("รับเงิน (Paid Cash)", paid);
+    if (change != null) amountRow("เงินทอน (Change)", change);
+  }
 
   // ── PromptPay QR ──
   const payload = promptPayId ? promptPayPayload(promptPayId, grandTotal) : "";
